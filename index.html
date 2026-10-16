@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Sidequest</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="description" content="A little corner of the internet with small fun things.">
+        <link rel="stylesheet" href="style.css">
+        <script>
+            (function () {
+                var theme = null;
+                try { theme = localStorage.getItem("theme"); } catch (e) {}
+                if (!theme) {
+                    theme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+                }
+                document.documentElement.setAttribute("data-theme", theme);
+            })();
+        </script>
+    </head>
+    <body>
+        <nav>
+            <a href="index.html" class="logo">sidequest</a>
+            <button id="theme-toggle" aria-label="Switch between dark and light theme">☀️</button>
+        </nav>
+
+        <section class="hero">
+            <p class="tag">A little corner of the internet</p>
+            <h1>Pick a <span class="gradient">sidequest</span></h1>
+            <p class="subtitle">Five small things, built just for fun.</p>
+        </section>
+
+        <section class="reveal">
+            <div class="cards">
+                <a href="favorites.html" class="card">
+                    <h3>My Favorites</h3>
+                    <p>Movies, food, songs, and places I love.</p>
+                </a>
+                <a href="arcade.html" class="card">
+                    <h3>Mini Arcade</h3>
+                    <p>Quick games you can play right here.</p>
+                </a>
+                <a href="randomizer.html" class="card">
+                    <h3>What Should I Do Today?</h3>
+                    <p>Press a button and let fate decide.</p>
+                </a>
+                <a href="quiz.html" class="card">
+                    <h3>The Quiz</h3>
+                    <p>A short quiz with a surprising result.</p>
+                </a>
+                <a href="countdown.html" class="card">
+                    <h3>Countdown</h3>
+                    <p>Counting down to something good.</p>
+                </a>
+            </div>
+        </section>
+
+        <footer>
+            <p>&copy; 2026 sidequest. Built with HTML, CSS and JavaScript.</p>
+        </footer>
+
+        <script>
+            document.documentElement.classList.add("js");
+
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach((entry) => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add("visible");
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, { threshold: 0.15 });
+
+            document.querySelectorAll(".reveal").forEach((el) => observer.observe(el));
+
+            const toggle = document.getElementById("theme-toggle");
+
+            function updateIcon() {
+                const isLight = document.documentElement.getAttribute("data-theme") === "light";
+                toggle.textContent = isLight ? "🌙" : "☀️";
+            }
+
+            updateIcon();
+
+            toggle.addEventListener("click", () => {
+                const isLight = document.documentElement.getAttribute("data-theme") === "light";
+                const next = isLight ? "dark" : "light";
+                document.documentElement.setAttribute("data-theme", next);
+                try { localStorage.setItem("theme", next); } catch (e) {}
+                updateIcon();
+            });
+        </script>
+    </body>
+</html>
