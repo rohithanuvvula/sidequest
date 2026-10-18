@@ -5,7 +5,8 @@
         <title>Sidequest</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="description" content="A little corner of the internet with small fun things.">
-        <link rel="stylesheet" href="style.css">
+        <link rel="icon" type="image/svg+xml" href="logo.svg">
+        <link rel="stylesheet" href="style.css?v=6">
         <script>
             (function () {
                 var theme = null;
@@ -19,7 +20,20 @@
     </head>
     <body>
         <nav>
-            <a href="index.html" class="logo">sidequest</a>
+            <a href="index.html" class="logo" aria-label="Sidequest home">
+               <svg class="logo-mark" viewBox="0 0 64 64" aria-hidden="true">
+                   <defs>
+                       <linearGradient id="logo-grad" x1="8" y1="56" x2="56" y2="8" gradientUnits="userSpaceOnUse">
+                          <stop offset="0" stop-color="#8b5cf6"/>
+                          <stop offset="0.55" stop-color="#ec4899"/>
+                          <stop offset="1" stop-color="#f97316"/>
+                        </linearGradient>
+                    </defs>
+                    <path d="M51.7 28.53A20 20 0 1 1 35.47 12.3" fill="none" stroke="url(#logo-grad)" stroke-width="6" stroke-linecap="round"/>
+                    <circle cx="51.09" cy="12.91" r="4.5" fill="#f97316"/>
+                </svg>
+                <span>sidequest</span>
+            </a>
             <button id="theme-toggle" aria-label="Switch between dark and light theme">☀️</button>
         </nav>
 
@@ -40,7 +54,7 @@
                     <p>Quick games you can play right here.</p>
                 </a>
                 <a href="randomizer.html" class="card">
-                    <h3>What Should I Do Today?</h3>
+                    <h3>Mystery Picker</h3>
                     <p>Press a button and let fate decide.</p>
                 </a>
                 <a href="quiz.html" class="card">
@@ -55,7 +69,7 @@
         </section>
 
         <footer>
-            <p>&copy; 2026 sidequest. Built with HTML, CSS and JavaScript.</p>
+            <p>&copy; 2026 sidequest. All rights reserved. Built with HTML, CSS and JavaScript.</p>
         </footer>
 
         <script>
@@ -87,6 +101,15 @@
                 document.documentElement.setAttribute("data-theme", next);
                 try { localStorage.setItem("theme", next); } catch (e) {}
                 updateIcon();
+            });
+
+            let lastY = window.scrollY;
+            const navBar = document.querySelector("nav");
+
+            window.addEventListener("scroll", () => {
+                const y = window.scrollY;
+                navBar.classList.toggle("hide", y > lastY && y > 100);
+                lastY = y;
             });
         </script>
     </body>

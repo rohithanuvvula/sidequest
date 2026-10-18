@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Countdown | Sidequest</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/svg+xml" href="logo.svg">
+    <link rel="stylesheet" href="style.css?v=3">
+    <script>
+        (function () {
+            var theme = null;
+            try { theme = localStorage.getItem("theme"); } catch (e) {}
+            if (!theme) {
+                theme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+            }
+            document.documentElement.setAttribute("data-theme", theme);
+        })();
+    </script>
+</head>
+<body>
+    <nav>
+        <a href="index.html" class="logo" aria-label="Sidequest home">
+    <svg class="logo-mark" viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+            <linearGradient id="logo-grad" x1="8" y1="56" x2="56" y2="8" gradientUnits="userSpaceOnUse">
+                <stop offset="0" stop-color="#8b5cf6"/>
+                <stop offset="0.55" stop-color="#ec4899"/>
+                <stop offset="1" stop-color="#f97316"/>
+            </linearGradient>
+        </defs>
+        <path d="M51.7 28.53A20 20 0 1 1 35.47 12.3" fill="none" stroke="url(#logo-grad)" stroke-width="6" stroke-linecap="round"/>
+        <circle cx="51.09" cy="12.91" r="4.5" fill="#f97316"/>
+    </svg>
+    <span>sidequest</span>
+</a>
+        <button id="theme-toggle" aria-label="Switch between dark and light theme">☀️</button>
+    </nav>
+
+    <section class="hero">
+        <p class="tag">Countdown</p>
+        <h1>Count down to <span class="gradient">anything</span></h1>
+        <p class="subtitle">Add your own events and watch the time tick away.</p>
+    </section>
+
+    <section>
+        <form id="event-form" class="event-form">
+            <h2 id="form-title">Add an event</h2>
+            <div class="form-grid">
+                <label>Event name
+                    <input type="text" id="name-input" maxlength="40" placeholder="Birthday, trip, exam..." required>
+                </label>
+                <label>Date and time
+                    <input type="datetime-local" id="date-input" required>
+                </label>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn" id="save-btn">Add event</button>
+                <button type="button" class="small-btn" id="cancel-btn" hidden>Cancel</button>
+            </div>
+        </form>
+    </section>
+
+    <section>
+        <div id="events" class="events"></div>
+        <p class="note">Your events are saved in this browser on this device only.</p>
+        <a href="index.html" class="back-link">← Back to all sidequests</a>
+    </section>
+
+    <script src="theme.js"></script>
+    <script>
+        const STORAGE_KEY = "sidequest-events";
+        let events = [];
+        let editingId = null;
+        let cards = [];
+
+        const form = document.getElementById("event-form");
+        const nameInput = document.getElementById("name-input");
+        const dateInput = document.getElementById("date-input");
+        const formTitle = document.getElementById("form-title");
+        const saveBtn = document.getElementById("save-btn");
+        const cancelBtn = document.getElementById("cancel-btn");
+
+        function loadEvents() {
+            try {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                events = saved ? JSON.parse(saved) : [];
+            } catch (e) {
+                events = [];
+            }
+        }
+
+        function saveEvents() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(events));
+            } catch (e) {}
+        }
+
+        function pad(number) {
+            return String(number).padStart(2, "0");
+        }
+
+        function makeEl(tag, className, text) {
+            const node = document.createElement(tag);
+            if (className) node.className = className;
+            if (text !== undefined) node.textContent = text;
+            return node;
+        }
+
+        function getAllEvents() {
+            const now = new Date();
+            const newYear = new Date(now.getFullYear() + 1, 0, 1);
+            const list = [{
+                id: "new-year",
+                name: "New Year " + newYear.getFullYear(),
+                date: newYear,
+                builtIn: true
+            }];
+
+            events.forEach((ev) => {
+                const date = new Date(ev.date);
+                if (!isNaN(date)) {
+                    list.push({ id: ev.id, name: ev.name, date: date, builtIn: false });
+                }
+            });
+
+            return list.sort((a, b) => a.date - b.date);
+        }
+
+        function renderEvents() {
+            const container = document.getElementById("events");
+            container.textContent = "";
+            cards = [];
+
+            getAllEvents().forEach((ev) => {
+                const card = makeEl("div", "event-card");
+
+                const head = makeEl("div", "event-head");
+                head.appendChild(makeEl("h3", "", ev.name));
+                head.appendChild(makeEl("p", "event-date",
+                    ev.date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })));
+                card.appendChild(head);
+
+                const row = makeEl("div", "mini-countdown");
+                const refs = {};
+                ["days", "hours", "minutes", "seconds"].forEach((unit) => {
+                    const box = makeEl("div", "time-box");
+                    const number = makeEl("span", "", "00");
+                    box.appendChild(number);
+                    box.appendChild(makeEl("small", "", unit));
+                    row.appendChild(box);
+                    refs[unit] = number;
+                });
+                card.appendChild(row);
+
+                const status = makeEl("p", "event-status", "");
+                card.appendChild(status);
+
+                if (!ev.builtIn) {
+                    const actions = makeEl("div", "event-actions");
+
+                    const editBtn = makeEl("button", "small-btn", "Edit");
+                    editBtn.type = "button";
+                    editBtn.addEventListener("click", () => startEdit(ev.id));
+
+                    const deleteBtn = makeEl("button", "small-btn danger", "Delete");
+                    deleteBtn.type = "button";
+                    deleteBtn.addEventListener("click", () => deleteEvent(ev.id, ev.name));
+
+                    actions.appendChild(editBtn);
+                    actions.appendChild(deleteBtn);
+                    card.appendChild(actions);
+                }
+
+                container.appendChild(card);
+                cards.push({ date: ev.date, refs: refs, status: status });
+            });
+
+            tick();
+        }
+
+        function tick() {
+            const now = new Date();
+            cards.forEach((card) => {
+                let diff = card.date - now;
+                const isOver = diff <= 0;
+                if (isOver) diff = 0;
+
+                card.refs.days.textContent = pad(Math.floor(diff / (1000 * 60 * 60 * 24)));
+                card.refs.hours.textContent = pad(Math.floor((diff / (1000 * 60 * 60)) % 24));
+                card.refs.minutes.textContent = pad(Math.floor((diff / (1000 * 60)) % 60));
+                card.refs.seconds.textContent = pad(Math.floor((diff / 1000) % 60));
+                card.status.textContent = isOver ? "It's here! 🎉" : "";
+            });
+        }
+
+        function resetForm() {
+            editingId = null;
+            form.reset();
+            formTitle.textContent = "Add an event";
+            saveBtn.textContent = "Add event";
+            cancelBtn.hidden = true;
+        }
+
+        function startEdit(id) {
+            const target = events.find((ev) => ev.id === id);
+            if (!target) return;
+
+            editingId = id;
+            nameInput.value = target.name;
+            dateInput.value = target.date;
+            formTitle.textContent = "Edit event";
+            saveBtn.textContent = "Save changes";
+            cancelBtn.hidden = false;
+            form.scrollIntoView({ behavior: "smooth", block: "center" });
+            nameInput.focus();
+        }
+
+        function deleteEvent(id, name) {
+            if (!confirm('Delete "' + name + '"?')) return;
+            events = events.filter((ev) => ev.id !== id);
+            if (editingId === id) resetForm();
+            saveEvents();
+            renderEvents();
+        }
+
+        form.addEventListener("submit", (e) => {
+            e.preventDefault();
+            const name = nameInput.value.trim();
+            const dateValue = dateInput.value;
+            if (!name || !dateValue) return;
+
+            if (editingId) {
+                const target = events.find((ev) => ev.id === editingId);
+                if (target) {
+                    target.name = name;
+                    target.date = dateValue;
+                }
+            } else {
+                events.push({ id: String(Date.now()), name: name, date: dateValue });
+            }
+
+            saveEvents();
+            resetForm();
+            renderEvents();
+        });
+
+        cancelBtn.addEventListener("click", resetForm);
+
+        loadEvents();
+        renderEvents();
+        setInterval(tick, 1000);
+    </script>
+</body>
+</html>

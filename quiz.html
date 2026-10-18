@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Quiz | Sidequest</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Short, silly quizzes about eras, chai, cities, and nostalgia.">
+    <link rel="icon" type="image/svg+xml" href="logo.svg">
+    <link rel="stylesheet" href="style.css">
+    <script>
+        (function () {
+            var theme = null;
+            try { theme = localStorage.getItem("theme"); } catch (e) {}
+            if (!theme) {
+                theme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+            }
+            document.documentElement.setAttribute("data-theme", theme);
+        })();
+    </script>
+</head>
+<body>
+    <nav>
+        <a href="index.html" class="logo" aria-label="Sidequest home">
+            <svg class="logo-mark" viewBox="0 0 64 64" aria-hidden="true">
+                <defs>
+                    <linearGradient id="logo-grad" x1="8" y1="56" x2="56" y2="8" gradientUnits="userSpaceOnUse">
+                        <stop offset="0" stop-color="#8b5cf6"/>
+                        <stop offset="0.55" stop-color="#ec4899"/>
+                        <stop offset="1" stop-color="#f97316"/>
+                    </linearGradient>
+                </defs>
+                <path d="M51.7 28.53A20 20 0 1 1 35.47 12.3" fill="none" stroke="url(#logo-grad)" stroke-width="6" stroke-linecap="round"/>
+                <circle cx="51.09" cy="12.91" r="4.5" fill="#f97316"/>
+            </svg>
+            <span>sidequest</span>
+        </a>
+        <button id="theme-toggle" aria-label="Switch between dark and light theme">☀️</button>
+    </nav>
+
+    <section class="hero" id="quiz-hero">
+        <p class="tag">Quiz</p>
+        <h1>Take a <span class="gradient">quiz</span></h1>
+        <p class="subtitle">Short, silly, and surprisingly accurate. Just for fun.</p>
+    </section>
+
+    <section>
+        <p class="match-count" id="quiz-error" role="alert"></p>
+        <div id="quiz-app"></div>
+        <a href="index.html" class="back-link">← Back to all sidequests</a>
+    </section>
+
+    <script>
+        // Shows any script error on the page, so you can read it without the console.
+        window.addEventListener("error", function (e) {
+            var box = document.getElementById("quiz-error");
+            if (box) {
+                box.textContent = "Script error: " + e.message + " (" +
+                    (e.filename || "").split("/").pop() + ", line " + e.lineno + ")";
+            }
+        });
+    </script>
+    <script src="theme.js"></script>
+    <script src="quiz-data.js"></script>
+    <script>
+        const STORE = "sidequest-quiz-results";
+        const app = document.getElementById("quiz-app");
+        const hero = document.getElementById("quiz-hero");
+        const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+        let results = loadResults();
+        let active = null;
+        let step = 0;
+        let answers = [];
+        let locked = false;
+        let copyTimer = null;
+
+        function loadResults() {
+            try {
+                const saved = JSON.parse(localStorage.getItem(STORE));
+                if (saved && typeof saved === "object") return saved;
+            } catch (e) {}
+            return {};
+        }
+
+        function saveResult(id, title) {
+            results[id] = title;
+            try { localStorage.setItem(STORE, JSON.stringify(results)); } catch (e) {}
+        }
+
+        function makeEl(tag, className, text) {
+            const node = document.createElement(tag);
+            if (className) node.className = className;
+            if (text !== undefined) node.textContent = text;
+            return node;
+        }
+
+        function clearApp() {
+            app.textContent = "";
+        }
+
+        async function copyText(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+                return true;
+            } catch (e) {
+                const area = document.createElement("textarea");
+                area.value = text;
+                area.style.position = "fixed";
+                area.style.opacity = "0";
+                document.body.appendChild(area);
+                area.select();
+                let ok = false;
+                try { ok = document.execCommand("copy"); } catch (err) {}
+                document.body.removeChild(area);
+                return ok;
+            }
+        }
+
+        const coverInfo = typeof COVERS !== "undefined" ? COVERS : {};
+
+function makeCover(quiz, mainEmoji, size) {
+    const info = coverInfo[quiz.id] || {};
+    const cover = makeEl("div", "quiz-cover" + (size ? " " + size : ""));
+    cover.setAttribute("aria-hidden", "true");
+    cover.style.setProperty("--h", info.hue !== undefined ? info.hue : 265);
+
+    (info.emojis || []).slice(0, 4).forEach((symbol, i) => {
+        cover.appendChild(makeEl("span", "cover-dot d" + (i + 1), symbol));
+    });
+    cover.appendChild(makeEl("span", "cover-main", mainEmoji || quiz.emoji));
+
+    // Optional real photo, drawn over the art. If it fails to load, the art stays.
+    if (info.image && !size) {
+        const img = document.createElement("img");
+        img.src = info.image;
+        img.alt = "";
+        img.loading = "lazy";
+        img.addEventListener("error", () => img.remove());
+        cover.appendChild(img);
+    }
+
+    return cover;
+}
+
+function showHub() {
+    active = null;
+    hero.hidden = false;
+    clearApp();
+
+    const grid = makeEl("div", "quiz-grid");
+    QUIZZES.forEach((quiz, index) => {
+        const tile = makeEl("a", "card quiz-card" + (index === 0 ? " featured" : ""));
+        tile.href = "#" + quiz.id;
+        tile.appendChild(makeCover(quiz, quiz.emoji, ""));
+
+        const body = makeEl("div", "quiz-card-body");
+        const kind = quiz.type === "checklist" ? "Checklist" : quiz.questions.length + " questions";
+        body.appendChild(makeEl("span", "quiz-kind", kind));
+        body.appendChild(makeEl("h3", "", quiz.title));
+        body.appendChild(makeEl("p", "", quiz.blurb));
+        if (results[quiz.id]) {
+            body.appendChild(makeEl("p", "quiz-last", "Your last result: " + results[quiz.id]));
+        }
+        tile.appendChild(body);
+        grid.appendChild(tile);
+    });
+    app.appendChild(grid);
+}
+
+        function backButton(label, onClick) {
+            const btn = makeEl("button", "small-btn", label);
+            btn.type = "button";
+            btn.addEventListener("click", onClick);
+            return btn;
+        }
+
+        function renderQuestion() {
+            clearApp();
+            locked = false;
+
+            const quiz = active;
+            const q = quiz.questions[step];
+            const total = quiz.questions.length;
+
+            const box = makeEl("div", "quiz-box");
+
+            const top = makeEl("div", "quiz-top");
+            top.appendChild(backButton(step === 0 ? "← All quizzes" : "← Back", () => {
+                if (step === 0) {
+                    location.hash = "";
+                } else {
+                    step--;
+                    answers.pop();
+                    renderQuestion();
+                }
+            }));
+            top.appendChild(makeEl("span", "quiz-count", "Question " + (step + 1) + " of " + total));
+            box.appendChild(top);
+
+            const bar = makeEl("div", "match-bar");
+            const fill = makeEl("div", "match-fill");
+            fill.style.width = (step / total * 100) + "%";
+            bar.appendChild(fill);
+            box.appendChild(bar);
+
+            const heading = makeEl("h2", "quiz-q", q.q);
+            heading.tabIndex = -1;
+            box.appendChild(heading);
+
+            const list = makeEl("div", "quiz-options");
+            q.a.forEach((option) => {
+                const btn = makeEl("button", "quiz-option", option[0]);
+                btn.type = "button";
+                btn.addEventListener("click", () => {
+                    if (locked) return;
+                    locked = true;
+                    btn.classList.add("picked");
+                    answers.push(option[1]);
+
+                    const next = () => {
+                        step++;
+                        if (step >= total) {
+                            showPersonalityResult();
+                        } else {
+                            renderQuestion();
+                        }
+                    };
+
+                    if (reduceMotion) {
+                        next();
+                    } else {
+                        setTimeout(next, 280);
+                    }
+                });
+                list.appendChild(btn);
+            });
+            box.appendChild(list);
+
+            app.appendChild(box);
+            heading.focus();
+        }
+
+        // The result with the most answers wins. A tie is settled at random.
+        function showPersonalityResult() {
+            const counts = {};
+            answers.forEach((key) => { counts[key] = (counts[key] || 0) + 1; });
+            const best = Math.max.apply(null, Object.values(counts));
+            const tied = Object.keys(counts).filter((key) => counts[key] === best);
+            const winner = tied[Math.floor(Math.random() * tied.length)];
+            const keys = Object.keys(active.results);
+            renderResult(active.results[winner] || active.results[keys[0]], "");
+        }
+
+        function bandFor(score) {
+            let found = active.bands[0];
+            active.bands.forEach((band) => {
+                if (score >= band.min) found = band;
+            });
+            return found;
+        }
+
+        function renderChecklist() {
+            clearApp();
+            const quiz = active;
+            const ticked = new Set();
+
+            const box = makeEl("div", "quiz-box");
+
+            const top = makeEl("div", "quiz-top");
+            top.appendChild(backButton("← All quizzes", () => { location.hash = ""; }));
+            box.appendChild(top);
+
+            const heading = makeEl("h2", "quiz-q", quiz.title);
+            heading.tabIndex = -1;
+            box.appendChild(heading);
+            box.appendChild(makeEl("p", "hint", quiz.intro || ""));
+
+            const list = makeEl("div", "quiz-options");
+            const counter = makeEl("p", "quiz-count-live", "0 of " + quiz.items.length + " ticked");
+
+            quiz.items.forEach((text, i) => {
+                const btn = makeEl("button", "quiz-option check", text);
+                btn.type = "button";
+                btn.setAttribute("aria-pressed", "false");
+                btn.addEventListener("click", () => {
+                    if (ticked.has(i)) {
+                        ticked.delete(i);
+                    } else {
+                        ticked.add(i);
+                    }
+                    btn.setAttribute("aria-pressed", ticked.has(i) ? "true" : "false");
+                    counter.textContent = ticked.size + " of " + quiz.items.length + " ticked";
+                });
+                list.appendChild(btn);
+            });
+            box.appendChild(list);
+            box.appendChild(counter);
+
+            const go = makeEl("button", "btn", "See my score");
+            go.type = "button";
+            go.addEventListener("click", () => {
+                const score = ticked.size;
+                renderResult(bandFor(score), "You ticked " + score + " of " + quiz.items.length);
+            });
+            box.appendChild(go);
+
+            app.appendChild(box);
+            heading.focus();
+        }
+
+        function renderResult(res, extra) {
+            clearApp();
+            const quiz = active;
+            saveResult(quiz.id, res.title);
+
+            const box = makeEl("div", "quiz-box quiz-result");
+            box.appendChild(makeCover(quiz, res.emoji, "banner"));
+            box.appendChild(makeEl("p", "result-label", "Your result"));
+
+            const title = makeEl("h2", "quiz-result-title gradient", res.title);
+            title.tabIndex = -1;
+            box.appendChild(title);
+
+            if (extra) box.appendChild(makeEl("p", "quiz-score", extra));
+            box.appendChild(makeEl("p", "quiz-result-text", res.text));
+
+            if (res.traits && res.traits.length) {
+                const tags = makeEl("div", "result-tags");
+                res.traits.forEach((t) => tags.appendChild(makeEl("span", "pill", t)));
+                box.appendChild(tags);
+            }
+
+            const link = location.href.split("#")[0] + "#" + quiz.id;
+            const shareText = quiz.title + "\n" + (extra ? extra + ". " : "") +
+                "I got: " + res.title + " " + res.emoji + "\nTake it too: " + link;
+
+            const actions = makeEl("div", "detail-actions quiz-actions");
+
+            const copyBtn = makeEl("button", "btn", "Copy my result");
+            copyBtn.type = "button";
+            copyBtn.addEventListener("click", async () => {
+                const ok = await copyText(shareText);
+                copyBtn.textContent = ok ? "Copied ✓" : "Couldn’t copy";
+                clearTimeout(copyTimer);
+                copyTimer = setTimeout(() => { copyBtn.textContent = "Copy my result"; }, 2000);
+            });
+
+            actions.appendChild(copyBtn);
+            actions.appendChild(backButton("Retake", route));
+            actions.appendChild(backButton("All quizzes", () => { location.hash = ""; }));
+            box.appendChild(actions);
+
+            app.appendChild(box);
+            window.scrollTo(0, 0);
+            title.focus();
+        }
+
+        function route() {
+            const id = location.hash.replace("#", "");
+            const quiz = QUIZZES.find((item) => item.id === id);
+            window.scrollTo(0, 0);
+
+            if (!quiz) {
+                showHub();
+                return;
+            }
+
+            active = quiz;
+            step = 0;
+            answers = [];
+            hero.hidden = true;
+
+            if (quiz.type === "checklist") {
+                renderChecklist();
+            } else {
+                renderQuestion();
+            }
+        }
+
+        window.addEventListener("hashchange", route);
+        route();
+    </script>
+</body>
+</html>

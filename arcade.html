@@ -1,0 +1,1242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Arcade | Sidequest</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Three quick games: memory match, snake, and tic-tac-toe.">
+    <link rel="icon" type="image/svg+xml" href="logo.svg">
+    <link rel="stylesheet" href="style.css">
+    <script>
+        (function () {
+            var theme = null;
+            try { theme = localStorage.getItem("theme"); } catch (e) {}
+            if (!theme) {
+                theme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+            }
+            document.documentElement.setAttribute("data-theme", theme);
+        })();
+    </script>
+</head>
+<body>
+    <nav>
+        <a href="index.html" class="logo" aria-label="Sidequest home">
+            <svg class="logo-mark" viewBox="0 0 64 64" aria-hidden="true">
+                <defs>
+                    <linearGradient id="logo-grad" x1="8" y1="56" x2="56" y2="8" gradientUnits="userSpaceOnUse">
+                        <stop offset="0" stop-color="#8b5cf6"/>
+                        <stop offset="0.55" stop-color="#ec4899"/>
+                        <stop offset="1" stop-color="#f97316"/>
+                    </linearGradient>
+                </defs>
+                <path d="M51.7 28.53A20 20 0 1 1 35.47 12.3" fill="none" stroke="url(#logo-grad)" stroke-width="6" stroke-linecap="round"/>
+                <circle cx="51.09" cy="12.91" r="4.5" fill="#f97316"/>
+            </svg>
+            <span>sidequest</span>
+        </a>
+        <button id="theme-toggle" aria-label="Switch between dark and light theme">☀️</button>
+    </nav>
+
+    <section class="hero">
+        <p class="tag">Arcade</p>
+        <h1>Press <span class="gradient">start</span></h1>
+        <p class="subtitle">Three quick games. Beat your best score.</p>
+    </section>
+
+    <section>
+        <div class="tabs" id="arc-tabs">
+            <button type="button" class="tab active" data-game="memory" aria-pressed="true">Memory</button>
+            <button type="button" class="tab" data-game="snake" aria-pressed="false">Snake</button>
+            <button type="button" class="tab" data-game="ttt" aria-pressed="false">Tic-Tac-Toe</button>
+        </div>
+
+        <div class="arc-top">
+            <p class="hint" id="arc-hint"></p>
+            <button type="button" class="small-btn" id="sound-btn" aria-pressed="false">🔇 Sound off</button>
+        </div>
+
+        <div class="arc-card" id="stage"></div>
+
+        <p class="match-count" id="arc-error" role="alert"></p>
+        <p class="note">Best scores and tallies are saved in this browser only.</p>
+        <a href="index.html" class="back-link">← Back to all sidequests</a>
+    </section>
+
+    <canvas id="fx" aria-hidden="true"></canvas>
+
+    <script>
+        // Shows any script error on the page, so you can read it without the console.
+        window.addEventListener("error", function (e) {
+            var box = document.getElementById("arc-error");
+            if (box) {
+                box.textContent = "Script error: " + e.message + " (" +
+                    (e.filename || "").split("/").pop() + ", line " + e.lineno + ")";
+            }
+        });
+    </script>
+    <script src="theme.js"></script>
+    <script>
+    (function () {
+        "use strict";
+
+        const SAVE_KEY = "sidequest-arcade";
+        const NS = "http://www.w3.org/2000/svg";
+        const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+        const stage = document.getElementById("stage");
+        const hintBox = document.getElementById("arc-hint");
+        const soundBtn = document.getElementById("sound-btn");
+        const tabButtons = document.querySelectorAll("#arc-tabs .tab");
+        const fxCanvas = document.getElementById("fx");
+        const fxCtx = fxCanvas.getContext("2d");
+
+        // ------------------------------------------------------------
+        // Saved data (best scores, tallies, sound setting)
+        // ------------------------------------------------------------
+        function loadSaved() {
+            try {
+                const data = JSON.parse(localStorage.getItem(SAVE_KEY));
+                if (data && typeof data === "object") return data;
+            } catch (e) {}
+            return {};
+        }
+
+        const saved = loadSaved();
+        if (!saved.best || typeof saved.best !== "object") saved.best = {};
+        if (!saved.ttt || typeof saved.ttt !== "object") saved.ttt = {};
+        let soundOn = saved.sound === true;
+
+        function persist() {
+            try { localStorage.setItem(SAVE_KEY, JSON.stringify(saved)); } catch (e) {}
+        }
+
+        function getBest(key) {
+            return Number(saved.best[key]) || 0;
+        }
+
+        function setBest(key, value) {
+            saved.best[key] = value;
+            persist();
+        }
+
+        // ------------------------------------------------------------
+        // Small helpers
+        // ------------------------------------------------------------
+        function el(tag, className, text) {
+            const node = document.createElement(tag);
+            if (className) node.className = className;
+            if (text !== undefined) node.textContent = text;
+            return node;
+        }
+
+        function shuffle(list) {
+            const a = list.slice();
+            for (let i = a.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                const t = a[i];
+                a[i] = a[j];
+                a[j] = t;
+            }
+            return a;
+        }
+
+        function formatTime(s) {
+            return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+        }
+
+        function makeStat(label, value) {
+            const box = el("div", "arc-stat");
+            const v = el("span", "", String(value));
+            box.appendChild(v);
+            box.appendChild(el("small", "", label));
+            return { box: box, set: function (x) { v.textContent = String(x); } };
+        }
+
+        function makeChips(options, selected, onPick) {
+            const wrap = el("div", "chips arc-opts");
+            const buttons = [];
+            options.forEach(function (opt) {
+                const b = el("button", "chip", opt[1]);
+                b.type = "button";
+                b.setAttribute("aria-pressed", opt[0] === selected ? "true" : "false");
+                b.addEventListener("click", function () {
+                    buttons.forEach(function (x) { x.setAttribute("aria-pressed", "false"); });
+                    b.setAttribute("aria-pressed", "true");
+                    onPick(opt[0]);
+                });
+                buttons.push(b);
+                wrap.appendChild(b);
+            });
+            return wrap;
+        }
+
+        function makeTimers() {
+            let list = [];
+            return {
+                later: function (fn, ms) {
+                    const id = setTimeout(function () {
+                        list = list.filter(function (x) { return x !== id; });
+                        fn();
+                    }, ms);
+                    list.push(id);
+                },
+                clear: function () {
+                    list.forEach(clearTimeout);
+                    list = [];
+                }
+            };
+        }
+
+        // ------------------------------------------------------------
+        // Sound effects (tiny beeps made in the browser, off by default)
+        // ------------------------------------------------------------
+        let audio = null;
+
+        function tone(freq, dur, type, vol, delay) {
+            if (!soundOn) return;
+            try {
+                if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+                if (audio.state === "suspended") audio.resume();
+                const t = audio.currentTime + (delay || 0);
+                const osc = audio.createOscillator();
+                const gain = audio.createGain();
+                osc.type = type || "sine";
+                osc.frequency.setValueAtTime(freq, t);
+                gain.gain.setValueAtTime(vol || 0.06, t);
+                gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+                osc.connect(gain);
+                gain.connect(audio.destination);
+                osc.start(t);
+                osc.stop(t + dur + 0.02);
+            } catch (e) {}
+        }
+
+        const sfx = {
+            flip: function () { tone(520, 0.08, "triangle"); },
+            match: function () { tone(660, 0.1, "sine"); tone(880, 0.14, "sine", 0.06, 0.09); },
+            miss: function () { tone(180, 0.18, "sawtooth", 0.04); },
+            eat: function () { tone(740, 0.07, "square", 0.04); tone(980, 0.07, "square", 0.04, 0.06); },
+            die: function () { tone(220, 0.25, "sawtooth", 0.06); tone(140, 0.35, "sawtooth", 0.06, 0.18); },
+            place: function () { tone(440, 0.08, "triangle"); },
+            win: function () { [523, 659, 784, 1047].forEach(function (f, i) { tone(f, 0.16, "sine", 0.06, i * 0.12); }); },
+            lose: function () { tone(300, 0.2, "sawtooth", 0.05); tone(200, 0.3, "sawtooth", 0.05, 0.18); },
+            draw: function () { tone(400, 0.15, "triangle"); tone(400, 0.15, "triangle", 0.05, 0.17); }
+        };
+
+        function renderSound() {
+            soundBtn.textContent = soundOn ? "🔊 Sound on" : "🔇 Sound off";
+            soundBtn.setAttribute("aria-pressed", soundOn ? "true" : "false");
+        }
+
+        soundBtn.addEventListener("click", function () {
+            soundOn = !soundOn;
+            saved.sound = soundOn;
+            persist();
+            renderSound();
+            if (soundOn) sfx.match();
+        });
+
+        // ------------------------------------------------------------
+        // Confetti (full-screen celebration)
+        // ------------------------------------------------------------
+        const CONFETTI = ["#a855f7", "#ec4899", "#fb923c", "#fdba74", "#38bdf8", "#facc15"];
+        let pieces = [];
+        let fxRunning = false;
+
+        function sizeFx() {
+            const dpr = window.devicePixelRatio || 1;
+            fxCanvas.width = window.innerWidth * dpr;
+            fxCanvas.height = window.innerHeight * dpr;
+            fxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+
+        sizeFx();
+        window.addEventListener("resize", sizeFx);
+
+        function confetti(x, y, count) {
+            if (reduceMotion) return;
+            for (let i = 0; i < count; i++) {
+                const a = Math.random() * Math.PI * 2;
+                const s = 4 + Math.random() * 8;
+                pieces.push({
+                    x: x, y: y,
+                    vx: Math.cos(a) * s, vy: Math.sin(a) * s - 5,
+                    w: 6 + Math.random() * 6, h: 4 + Math.random() * 5,
+                    r: Math.random() * 6, vr: (Math.random() - 0.5) * 0.4,
+                    life: 0, max: 70 + Math.random() * 50,
+                    c: CONFETTI[i % CONFETTI.length]
+                });
+            }
+            if (!fxRunning) {
+                fxRunning = true;
+                requestAnimationFrame(fxLoop);
+            }
+        }
+
+        function fxLoop() {
+            fxCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+            pieces = pieces.filter(function (p) { return p.life < p.max; });
+            pieces.forEach(function (p) {
+                p.life++;
+                p.vy += 0.28;
+                p.vx *= 0.99;
+                p.x += p.vx;
+                p.y += p.vy;
+                p.r += p.vr;
+                fxCtx.save();
+                fxCtx.globalAlpha = Math.max(0, 1 - p.life / p.max);
+                fxCtx.translate(p.x, p.y);
+                fxCtx.rotate(p.r);
+                fxCtx.fillStyle = p.c;
+                fxCtx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+                fxCtx.restore();
+            });
+            if (pieces.length) {
+                requestAnimationFrame(fxLoop);
+            } else {
+                fxRunning = false;
+                fxCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+            }
+        }
+
+        function celebrate(count) {
+            const r = stage.getBoundingClientRect();
+            const x = Math.min(Math.max(r.left + r.width / 2, 40), window.innerWidth - 40);
+            const y = Math.min(Math.max(r.top + r.height * 0.3, 80), window.innerHeight - 80);
+            confetti(x, y, count);
+        }
+
+        // ============================================================
+        // GAME 1: Memory Match
+        // ============================================================
+        function createMemory() {
+            const LEVELS = [["easy", "Easy · 6 pairs"], ["medium", "Medium · 8 pairs"], ["hard", "Hard · 10 pairs"]];
+            const SIZES = { easy: { pairs: 6, cols: 4 }, medium: { pairs: 8, cols: 4 }, hard: { pairs: 10, cols: 5 } };
+            const ICONS = [
+                ["🍵", "Chai"], ["🍛", "Biryani"], ["🥟", "Momo"], ["🍮", "Sweet"], ["🎬", "Film"],
+                ["🎧", "Music"], ["📚", "Book"], ["🏏", "Cricket"], ["🪁", "Kite"], ["🛺", "Auto"],
+                ["🌶️", "Chili"], ["🥭", "Mango"], ["🪔", "Diya"], ["🎺", "Band"]
+            ];
+
+            const timers = makeTimers();
+            let level = "medium";
+            let cards = [];
+            let first = null;
+            let lock = false;
+            let moves = 0;
+            let matched = 0;
+            let seconds = 0;
+            let clock = null;
+            let running = false;
+            let grid, statMoves, statTime, statBest, status;
+
+            function bestKey() { return "memory-" + level; }
+
+            function showBest() {
+                const b = getBest(bestKey());
+                statBest.set(b ? b + " moves" : "–");
+            }
+
+            function setLabel(card) {
+                const text = card.state === "down"
+                    ? "Hidden card " + (card.index + 1)
+                    : card.name + (card.state === "matched" ? ", matched" : "");
+                card.node.setAttribute("aria-label", text);
+            }
+
+            function newGame() {
+                timers.clear();
+                clearInterval(clock);
+                clock = null;
+                first = null;
+                lock = false;
+                moves = 0;
+                matched = 0;
+                seconds = 0;
+                running = false;
+                statMoves.set(0);
+                statTime.set("0:00");
+                showBest();
+                status.textContent = "Find all the pairs.";
+
+                const size = SIZES[level];
+                const deck = shuffle(shuffle(ICONS).slice(0, size.pairs).flatMap(function (ic) { return [ic, ic]; }));
+                grid.textContent = "";
+                grid.style.setProperty("--cols", size.cols);
+
+                cards = deck.map(function (ic, i) {
+                    const node = el("button", "mem-card");
+                    node.type = "button";
+                    const inner = el("span", "mem-inner");
+                    inner.appendChild(el("span", "mem-face mem-front"));
+                    inner.appendChild(el("span", "mem-face mem-back", ic[0]));
+                    node.appendChild(inner);
+
+                    const card = { node: node, key: ic[0], name: ic[1], state: "down", index: i };
+                    setLabel(card);
+                    node.addEventListener("click", function () { flip(card); });
+                    grid.appendChild(node);
+                    return card;
+                });
+            }
+
+            function flip(card) {
+                if (lock || card.state !== "down") return;
+
+                if (!running) {
+                    running = true;
+                    clock = setInterval(function () {
+                        seconds++;
+                        statTime.set(formatTime(seconds));
+                    }, 1000);
+                }
+
+                card.state = "up";
+                card.node.classList.add("flipped");
+                setLabel(card);
+                sfx.flip();
+
+                if (!first) {
+                    first = card;
+                    return;
+                }
+
+                const a = first;
+                const b = card;
+                first = null;
+                moves++;
+                statMoves.set(moves);
+                lock = true;
+
+                if (a.key === b.key) {
+                    timers.later(function () {
+                        [a, b].forEach(function (c) {
+                            c.state = "matched";
+                            c.node.classList.add("matched");
+                            setLabel(c);
+                        });
+                        sfx.match();
+                        matched++;
+                        lock = false;
+                        if (matched === SIZES[level].pairs) win();
+                    }, 350);
+                } else {
+                    timers.later(function () {
+                        [a, b].forEach(function (c) { c.node.classList.add("shake"); });
+                        sfx.miss();
+                    }, 450);
+                    timers.later(function () {
+                        [a, b].forEach(function (c) {
+                            c.state = "down";
+                            c.node.classList.remove("flipped", "shake");
+                            setLabel(c);
+                        });
+                        lock = false;
+                    }, 900);
+                }
+            }
+
+            function win() {
+                clearInterval(clock);
+                clock = null;
+                running = false;
+                const prev = getBest(bestKey());
+                const isBest = !prev || moves < prev;
+                if (isBest) setBest(bestKey(), moves);
+                showBest();
+                status.textContent = "Cleared in " + moves + " moves and " + formatTime(seconds) +
+                    (isBest ? " · New best! 🏆" : ".");
+                sfx.win();
+                celebrate(isBest ? 140 : 90);
+            }
+
+            return {
+                start: function (root) {
+                    const stats = el("div", "arc-stats");
+                    const sm = makeStat("Moves", 0);
+                    const st = makeStat("Time", "0:00");
+                    const sb = makeStat("Best", "–");
+                    statMoves = sm;
+                    statTime = st;
+                    statBest = sb;
+                    stats.append(sm.box, st.box, sb.box);
+                    root.appendChild(stats);
+
+                    root.appendChild(makeChips(LEVELS, level, function (key) {
+                        level = key;
+                        newGame();
+                    }));
+
+                    grid = el("div", "mem-grid");
+                    grid.setAttribute("role", "group");
+                    grid.setAttribute("aria-label", "Memory cards");
+                    root.appendChild(grid);
+
+                    status = el("p", "arc-status", "");
+                    status.setAttribute("aria-live", "polite");
+                    root.appendChild(status);
+
+                    const actions = el("div", "arc-actions");
+                    const again = el("button", "btn", "New game");
+                    again.type = "button";
+                    again.addEventListener("click", newGame);
+                    actions.appendChild(again);
+                    root.appendChild(actions);
+
+                    newGame();
+                },
+                stop: function () {
+                    timers.clear();
+                    clearInterval(clock);
+                    clock = null;
+                }
+            };
+        }
+
+        // ============================================================
+        // GAME 2: Glow Snake
+        // ============================================================
+        function createSnake() {
+            const N = 20;
+            const SIZE = 480;
+            const CELL = SIZE / N;
+            const MODES = [["classic", "Classic walls"], ["wrap", "Wrap-around"]];
+
+            let mode = "classic";
+            let canvas, ctx, overlay, ovTitle, ovSub, ovBtn, pauseBtn;
+            let statScore, statBest;
+            let snake, dir, queue, food, score, state, stepMs, acc, lastT, rafId;
+            let particles, popups, shake;
+
+            function bestKey() { return "snake-" + mode; }
+
+            function placeFood() {
+                const free = [];
+                for (let x = 0; x < N; x++) {
+                    for (let y = 0; y < N; y++) {
+                        if (!snake.some(function (s) { return s.x === x && s.y === y; })) free.push({ x: x, y: y });
+                    }
+                }
+                if (!free.length) {
+                    food = null;
+                    return false;
+                }
+                food = free[Math.floor(Math.random() * free.length)];
+                return true;
+            }
+
+            function showOverlay(title, sub, btnText) {
+                ovTitle.textContent = title;
+                ovSub.textContent = sub;
+                ovBtn.textContent = btnText;
+                overlay.hidden = false;
+            }
+
+            function syncPause() {
+                pauseBtn.disabled = state !== "running" && state !== "paused";
+                pauseBtn.textContent = state === "paused" ? "Resume" : "Pause";
+            }
+
+            function reset() {
+                snake = [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }];
+                dir = { x: 1, y: 0 };
+                queue = [];
+                score = 0;
+                stepMs = 140;
+                acc = 0;
+                particles = [];
+                popups = [];
+                shake = 0;
+                placeFood();
+                state = "idle";
+                statScore.set(0);
+                statBest.set(getBest(bestKey()) || "–");
+                showOverlay("Glow Snake",
+                    mode === "wrap" ? "Slide through the walls. Don’t bite yourself." : "Stay off the walls. Don’t bite yourself.",
+                    "Start");
+                syncPause();
+            }
+
+            function begin() {
+                state = "running";
+                overlay.hidden = true;
+                acc = 0;
+                lastT = performance.now();
+                syncPause();
+            }
+
+            function togglePause() {
+                if (state === "running") {
+                    state = "paused";
+                    showOverlay("Paused", "Press Space or tap Resume.", "Resume");
+                } else if (state === "paused") {
+                    begin();
+                }
+                syncPause();
+            }
+
+            function turn(x, y) {
+                if (state !== "running") return;
+                const last = queue.length ? queue[queue.length - 1] : dir;
+                if (x === last.x && y === last.y) return;
+                if (x === -last.x && y === -last.y) return;
+                if (queue.length < 2) queue.push({ x: x, y: y });
+            }
+
+            function burst(cx, cy) {
+                if (reduceMotion) return;
+                for (let i = 0; i < 16; i++) {
+                    const a = Math.random() * Math.PI * 2;
+                    const s = 1 + Math.random() * 3.2;
+                    particles.push({ x: cx, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0, max: 28 + Math.random() * 16, hue: 290 + Math.random() * 100 });
+                }
+            }
+
+            function die(filled) {
+                state = "over";
+                sfx.die();
+                if (!reduceMotion) shake = 14;
+                const key = bestKey();
+                let isBest = false;
+                if (score > getBest(key)) {
+                    setBest(key, score);
+                    isBest = true;
+                }
+                statBest.set(getBest(key) || "–");
+                const title = filled ? "You filled the board! 🎉" : (isBest ? "New high score! 🏆" : "Game over");
+                showOverlay(title, "Score " + score, "Play again");
+                if (isBest || filled) celebrate(120);
+                syncPause();
+            }
+
+            function step() {
+                if (queue.length) dir = queue.shift();
+                const head = snake[0];
+                let nx = head.x + dir.x;
+                let ny = head.y + dir.y;
+
+                if (mode === "wrap") {
+                    nx = (nx + N) % N;
+                    ny = (ny + N) % N;
+                } else if (nx < 0 || ny < 0 || nx >= N || ny >= N) {
+                    die(false);
+                    return;
+                }
+
+                const eating = food && nx === food.x && ny === food.y;
+                const body = eating ? snake : snake.slice(0, -1);
+                if (body.some(function (s) { return s.x === nx && s.y === ny; })) {
+                    die(false);
+                    return;
+                }
+
+                snake.unshift({ x: nx, y: ny });
+
+                if (eating) {
+                    score++;
+                    statScore.set(score);
+                    stepMs = Math.max(70, 140 - score * 3);
+                    sfx.eat();
+                    burst(nx * CELL + CELL / 2, ny * CELL + CELL / 2);
+                    popups.push({ x: nx * CELL + CELL / 2, y: ny * CELL, life: 0 });
+                    if (!placeFood()) die(true);
+                } else {
+                    snake.pop();
+                }
+            }
+
+            function rrect(x, y, w, h, r) {
+                ctx.beginPath();
+                if (ctx.roundRect) {
+                    ctx.roundRect(x, y, w, h, r);
+                } else {
+                    ctx.rect(x, y, w, h);
+                }
+                ctx.fill();
+            }
+
+            function draw(t, dt) {
+                const k = dt / 16.67;
+                ctx.save();
+
+                if (shake > 0.5) {
+                    ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+                    shake *= Math.pow(0.9, k);
+                } else {
+                    shake = 0;
+                }
+
+                const bg = ctx.createRadialGradient(SIZE / 2, SIZE / 2, 40, SIZE / 2, SIZE / 2, SIZE * 0.75);
+                bg.addColorStop(0, "#1b1442");
+                bg.addColorStop(1, "#0b0b1e");
+                ctx.fillStyle = bg;
+                ctx.fillRect(-20, -20, SIZE + 40, SIZE + 40);
+
+                ctx.fillStyle = "rgba(255, 255, 255, 0.07)";
+                for (let x = 0; x < N; x++) {
+                    for (let y = 0; y < N; y++) {
+                        ctx.fillRect(x * CELL + CELL / 2 - 1, y * CELL + CELL / 2 - 1, 2, 2);
+                    }
+                }
+
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = mode === "classic" ? "rgba(236, 72, 153, 0.55)" : "rgba(168, 85, 247, 0.25)";
+                ctx.strokeRect(1.5, 1.5, SIZE - 3, SIZE - 3);
+
+                // Food: a pulsing glowing orb
+                if (food) {
+                    const fx = food.x * CELL + CELL / 2;
+                    const fy = food.y * CELL + CELL / 2;
+                    const r = CELL * 0.3 * (1 + Math.sin(t / 180) * 0.12);
+                    const fg = ctx.createRadialGradient(fx - 2, fy - 2, 1, fx, fy, r + 2);
+                    fg.addColorStop(0, "#fde68a");
+                    fg.addColorStop(0.5, "#fb923c");
+                    fg.addColorStop(1, "#ec4899");
+                    ctx.shadowColor = "#fb923c";
+                    ctx.shadowBlur = 18;
+                    ctx.fillStyle = fg;
+                    ctx.beginPath();
+                    ctx.arc(fx, fy, r, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                }
+
+                // Snake: gradient body from pink head to purple tail
+                for (let i = snake.length - 1; i >= 0; i--) {
+                    const s = snake[i];
+                    const ratio = snake.length > 1 ? i / (snake.length - 1) : 0;
+                    const hue = 330 - ratio * 65;
+                    ctx.fillStyle = "hsl(" + hue + ", 85%, " + (62 - ratio * 14) + "%)";
+                    ctx.shadowColor = "hsl(" + hue + ", 90%, 60%)";
+                    ctx.shadowBlur = i === 0 ? 18 : 10;
+                    rrect(s.x * CELL + 2, s.y * CELL + 2, CELL - 4, CELL - 4, i === 0 ? 9 : 7);
+                }
+                ctx.shadowBlur = 0;
+
+                // Eyes
+                const h = snake[0];
+                const cx = h.x * CELL + CELL / 2;
+                const cy = h.y * CELL + CELL / 2;
+                [-1, 1].forEach(function (side) {
+                    const ex = cx + dir.x * 5 + -dir.y * 5 * side;
+                    const ey = cy + dir.y * 5 + dir.x * 5 * side;
+                    ctx.fillStyle = "#ffffff";
+                    ctx.beginPath();
+                    ctx.arc(ex, ey, 3.6, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = "#1a1033";
+                    ctx.beginPath();
+                    ctx.arc(ex + dir.x, ey + dir.y, 1.8, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+
+                // Sparkles when food is eaten
+                particles = particles.filter(function (p) { return p.life < p.max; });
+                particles.forEach(function (p) {
+                    p.life += k;
+                    p.x += p.vx * k;
+                    p.y += p.vy * k;
+                    p.vx *= 0.97;
+                    p.vy *= 0.97;
+                    ctx.globalAlpha = Math.max(0, 1 - p.life / p.max);
+                    ctx.fillStyle = "hsl(" + p.hue + ", 90%, 65%)";
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+
+                // Floating +1
+                popups = popups.filter(function (p) { return p.life < 40; });
+                popups.forEach(function (p) {
+                    p.life += k;
+                    ctx.globalAlpha = Math.max(0, 1 - p.life / 40);
+                    ctx.fillStyle = "#ffffff";
+                    ctx.font = "700 18px 'Segoe UI', system-ui, sans-serif";
+                    ctx.textAlign = "center";
+                    ctx.fillText("+1", p.x, p.y - p.life * 0.7);
+                });
+
+                ctx.globalAlpha = 1;
+                ctx.restore();
+            }
+
+            function loop(t) {
+                rafId = requestAnimationFrame(loop);
+                const dt = Math.min(100, t - lastT);
+                lastT = t;
+                if (state === "running") {
+                    acc += dt;
+                    while (acc >= stepMs) {
+                        acc -= stepMs;
+                        step();
+                        if (state !== "running") break;
+                    }
+                }
+                draw(t, dt);
+            }
+
+            function onKey(e) {
+                if (e.ctrlKey || e.metaKey || e.altKey) return;
+                const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+                const map = {
+                    ArrowUp: [0, -1], w: [0, -1],
+                    ArrowDown: [0, 1], s: [0, 1],
+                    ArrowLeft: [-1, 0], a: [-1, 0],
+                    ArrowRight: [1, 0], d: [1, 0]
+                };
+
+                if (map[key] && state === "running") {
+                    e.preventDefault();
+                    turn(map[key][0], map[key][1]);
+                    return;
+                }
+
+                if (key === "p" && (state === "running" || state === "paused")) {
+                    togglePause();
+                    return;
+                }
+
+                if (key === " " && !(e.target && e.target.tagName === "BUTTON")) {
+                    e.preventDefault();
+                    if (state === "idle") {
+                        begin();
+                    } else if (state === "over") {
+                        reset();
+                        begin();
+                    } else {
+                        togglePause();
+                    }
+                }
+            }
+
+            function onHidden() {
+                if (document.hidden && state === "running") togglePause();
+            }
+
+            function onOverlayButton() {
+                if (state === "idle") {
+                    begin();
+                } else if (state === "paused") {
+                    togglePause();
+                } else if (state === "over") {
+                    reset();
+                    begin();
+                }
+            }
+
+            return {
+                start: function (root) {
+                    const stats = el("div", "arc-stats");
+                    statScore = makeStat("Score", 0);
+                    statBest = makeStat("Best", "–");
+                    stats.append(statScore.box, statBest.box);
+                    root.appendChild(stats);
+
+                    root.appendChild(makeChips(MODES, mode, function (key) {
+                        mode = key;
+                        reset();
+                    }));
+
+                    const wrap = el("div", "snake-wrap");
+                    canvas = document.createElement("canvas");
+                    const dpr = window.devicePixelRatio || 1;
+                    canvas.width = SIZE * dpr;
+                    canvas.height = SIZE * dpr;
+                    canvas.setAttribute("role", "img");
+                    canvas.setAttribute("aria-label", "Snake game board");
+                    ctx = canvas.getContext("2d");
+                    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+                    overlay = el("div", "game-overlay");
+                    ovTitle = el("p", "ov-title", "");
+                    ovSub = el("p", "ov-sub", "");
+                    ovBtn = el("button", "btn", "");
+                    ovBtn.type = "button";
+                    ovBtn.addEventListener("click", onOverlayButton);
+                    overlay.append(ovTitle, ovSub, ovBtn);
+                    wrap.append(canvas, overlay);
+                    root.appendChild(wrap);
+
+                    // On-screen arrows for phones and tablets
+                    const pad = el("div", "dpad");
+                    [["dpad-up", "▲", 0, -1, "Up"], ["dpad-left", "◀", -1, 0, "Left"],
+                     ["dpad-right", "▶", 1, 0, "Right"], ["dpad-down", "▼", 0, 1, "Down"]].forEach(function (d) {
+                        const b = el("button", "dpad-btn " + d[0], d[1]);
+                        b.type = "button";
+                        b.setAttribute("aria-label", d[4]);
+                        b.addEventListener("pointerdown", function (e) {
+                            e.preventDefault();
+                            turn(d[2], d[3]);
+                        });
+                        b.addEventListener("click", function (e) {
+                            if (e.detail === 0) turn(d[2], d[3]);
+                        });
+                        pad.appendChild(b);
+                    });
+                    root.appendChild(pad);
+
+                    const actions = el("div", "arc-actions");
+                    pauseBtn = el("button", "small-btn", "Pause");
+                    pauseBtn.type = "button";
+                    pauseBtn.addEventListener("click", togglePause);
+                    const restart = el("button", "small-btn", "New game");
+                    restart.type = "button";
+                    restart.addEventListener("click", reset);
+                    actions.append(pauseBtn, restart);
+                    root.appendChild(actions);
+
+                    let tx = 0;
+                    let ty = 0;
+                    canvas.addEventListener("touchstart", function (e) {
+                        const t = e.changedTouches[0];
+                        tx = t.clientX;
+                        ty = t.clientY;
+                    }, { passive: true });
+                    canvas.addEventListener("touchend", function (e) {
+                        const t = e.changedTouches[0];
+                        const dx = t.clientX - tx;
+                        const dy = t.clientY - ty;
+                        if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
+                        if (Math.abs(dx) > Math.abs(dy)) {
+                            turn(dx > 0 ? 1 : -1, 0);
+                        } else {
+                            turn(0, dy > 0 ? 1 : -1);
+                        }
+                    }, { passive: true });
+
+                    document.addEventListener("keydown", onKey);
+                    document.addEventListener("visibilitychange", onHidden);
+
+                    reset();
+                    lastT = performance.now();
+                    rafId = requestAnimationFrame(loop);
+                },
+                stop: function () {
+                    cancelAnimationFrame(rafId);
+                    document.removeEventListener("keydown", onKey);
+                    document.removeEventListener("visibilitychange", onHidden);
+                }
+            };
+        }
+
+        // ============================================================
+        // GAME 3: Tic-Tac-Toe vs the Computer
+        // ============================================================
+        function createTTT() {
+            const LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
+            const LEVELS = [["easy", "Easy"], ["medium", "Medium"], ["hard", "Hard (unbeatable)"]];
+            const timers = makeTimers();
+
+            let level = "medium";
+            let board = [];
+            let cells = [];
+            let over = false;
+            let turn = "X";
+            let nextFirst = "X";
+            let status, youStat, drawStat, cpuStat;
+
+            function rec() {
+                if (!saved.ttt[level] || typeof saved.ttt[level] !== "object") saved.ttt[level] = { w: 0, d: 0, l: 0 };
+                const r = saved.ttt[level];
+                r.w = Number(r.w) || 0;
+                r.d = Number(r.d) || 0;
+                r.l = Number(r.l) || 0;
+                return r;
+            }
+
+            function updateScores() {
+                const r = rec();
+                youStat.set(r.w);
+                drawStat.set(r.d);
+                cpuStat.set(r.l);
+            }
+
+            function winnerOf(b) {
+                for (let i = 0; i < LINES.length; i++) {
+                    const l = LINES[i];
+                    if (b[l[0]] && b[l[0]] === b[l[1]] && b[l[0]] === b[l[2]]) {
+                        return { mark: b[l[0]], line: l };
+                    }
+                }
+                return null;
+            }
+
+            function minimax(b, isO, depth) {
+                const w = winnerOf(b);
+                if (w) return w.mark === "O" ? 10 - depth : depth - 10;
+                if (b.every(Boolean)) return 0;
+                let best = isO ? -Infinity : Infinity;
+                for (let i = 0; i < 9; i++) {
+                    if (b[i]) continue;
+                    b[i] = isO ? "O" : "X";
+                    const s = minimax(b, !isO, depth + 1);
+                    b[i] = null;
+                    best = isO ? Math.max(best, s) : Math.min(best, s);
+                }
+                return best;
+            }
+
+            function bestMove(b) {
+                const empties = [];
+                b.forEach(function (v, i) { if (!v) empties.push(i); });
+                if (empties.length === 9) return [0, 2, 4, 6, 8][Math.floor(Math.random() * 5)];
+                let best = -Infinity;
+                let moves = [];
+                empties.forEach(function (i) {
+                    b[i] = "O";
+                    const s = minimax(b, false, 1);
+                    b[i] = null;
+                    if (s > best) {
+                        best = s;
+                        moves = [i];
+                    } else if (s === best) {
+                        moves.push(i);
+                    }
+                });
+                return moves[Math.floor(Math.random() * moves.length)];
+            }
+
+            function findFinisher(b, mark) {
+                for (let i = 0; i < LINES.length; i++) {
+                    const l = LINES[i];
+                    const vals = [b[l[0]], b[l[1]], b[l[2]]];
+                    if (vals.filter(function (v) { return v === mark; }).length === 2 && vals.indexOf(null) !== -1) {
+                        return l[vals.indexOf(null)];
+                    }
+                }
+                return -1;
+            }
+
+            function randomEmpty() {
+                const empties = [];
+                board.forEach(function (v, i) { if (!v) empties.push(i); });
+                return empties[Math.floor(Math.random() * empties.length)];
+            }
+
+            function pickMove() {
+                if (level === "easy") return randomEmpty();
+                if (level === "medium") {
+                    let m = findFinisher(board, "O");
+                    if (m < 0) m = findFinisher(board, "X");
+                    if (m < 0 && !board[4] && Math.random() < 0.6) m = 4;
+                    return m >= 0 ? m : randomEmpty();
+                }
+                return bestMove(board);
+            }
+
+            function markSvg(mark) {
+                const svg = document.createElementNS(NS, "svg");
+                svg.setAttribute("viewBox", "0 0 100 100");
+                svg.setAttribute("class", "ttt-mark " + (mark === "X" ? "x" : "o"));
+                svg.setAttribute("aria-hidden", "true");
+                if (mark === "X") {
+                    ["M24 24L76 76", "M76 24L24 76"].forEach(function (d) {
+                        const p = document.createElementNS(NS, "path");
+                        p.setAttribute("d", d);
+                        p.setAttribute("pathLength", "100");
+                        svg.appendChild(p);
+                    });
+                } else {
+                    const c = document.createElementNS(NS, "circle");
+                    c.setAttribute("cx", "50");
+                    c.setAttribute("cy", "50");
+                    c.setAttribute("r", "27");
+                    c.setAttribute("pathLength", "100");
+                    svg.appendChild(c);
+                }
+                return svg;
+            }
+
+            function label(i) {
+                cells[i].setAttribute("aria-label",
+                    "Row " + (Math.floor(i / 3) + 1) + ", column " + (i % 3 + 1) + ", " + (board[i] || "empty"));
+            }
+
+            function place(mark, i) {
+                board[i] = mark;
+                cells[i].appendChild(markSvg(mark));
+                label(i);
+                sfx.place();
+            }
+
+            function finish() {
+                const w = winnerOf(board);
+                const r = rec();
+
+                if (w) {
+                    over = true;
+                    w.line.forEach(function (i) { cells[i].classList.add("win"); });
+                    if (w.mark === "X") {
+                        r.w++;
+                        status.textContent = "You win! 🎉";
+                        sfx.win();
+                        celebrate(110);
+                    } else {
+                        r.l++;
+                        status.textContent = "Computer wins. Try again!";
+                        sfx.lose();
+                    }
+                    persist();
+                    updateScores();
+                    return true;
+                }
+
+                if (board.every(Boolean)) {
+                    over = true;
+                    r.d++;
+                    status.textContent = "It’s a draw.";
+                    sfx.draw();
+                    persist();
+                    updateScores();
+                    return true;
+                }
+
+                return false;
+            }
+
+            function computerMove() {
+                if (over) return;
+                place("O", pickMove());
+                if (!finish()) {
+                    turn = "X";
+                    status.textContent = "Your turn (X)";
+                }
+            }
+
+            function playerMove(i) {
+                if (over || board[i] || turn !== "X") return;
+                place("X", i);
+                if (!finish()) {
+                    turn = "O";
+                    status.textContent = "Computer is thinking…";
+                    timers.later(computerMove, 600);
+                }
+            }
+
+            function newRound() {
+                timers.clear();
+                board = Array(9).fill(null);
+                over = false;
+                cells.forEach(function (c, i) {
+                    c.textContent = "";
+                    c.classList.remove("win");
+                    label(i);
+                });
+                const first = nextFirst;
+                nextFirst = first === "X" ? "O" : "X";
+                if (first === "X") {
+                    turn = "X";
+                    status.textContent = "Your turn (X)";
+                } else {
+                    turn = "O";
+                    status.textContent = "Computer starts…";
+                    timers.later(computerMove, 650);
+                }
+            }
+
+            return {
+                start: function (root) {
+                    const stats = el("div", "arc-stats");
+                    youStat = makeStat("You", 0);
+                    drawStat = makeStat("Draws", 0);
+                    cpuStat = makeStat("Computer", 0);
+                    stats.append(youStat.box, drawStat.box, cpuStat.box);
+                    root.appendChild(stats);
+
+                    root.appendChild(makeChips(LEVELS, level, function (key) {
+                        level = key;
+                        nextFirst = "X";
+                        updateScores();
+                        newRound();
+                    }));
+
+                    const boardEl = el("div", "ttt-board");
+                    boardEl.setAttribute("role", "group");
+                    boardEl.setAttribute("aria-label", "Tic-tac-toe board");
+                    cells = [];
+                    for (let i = 0; i < 9; i++) {
+                        const c = el("button", "ttt-cell");
+                        c.type = "button";
+                        c.addEventListener("click", function () { playerMove(i); });
+                        cells.push(c);
+                        boardEl.appendChild(c);
+                    }
+                    root.appendChild(boardEl);
+
+                    status = el("p", "arc-status", "");
+                    status.setAttribute("aria-live", "polite");
+                    root.appendChild(status);
+
+                    const actions = el("div", "arc-actions");
+                    const again = el("button", "btn", "New round");
+                    again.type = "button";
+                    again.addEventListener("click", newRound);
+                    const wipe = el("button", "small-btn danger", "Reset scores");
+                    wipe.type = "button";
+                    wipe.addEventListener("click", function () {
+                        if (!confirm("Reset your tic-tac-toe scores for this level?")) return;
+                        saved.ttt[level] = { w: 0, d: 0, l: 0 };
+                        persist();
+                        updateScores();
+                    });
+                    actions.append(again, wipe);
+                    root.appendChild(actions);
+
+                    updateScores();
+                    newRound();
+                },
+                stop: function () {
+                    timers.clear();
+                }
+            };
+        }
+
+        // ------------------------------------------------------------
+        // Switching between games
+        // ------------------------------------------------------------
+        const GAMES = { memory: createMemory, snake: createSnake, ttt: createTTT };
+        const HINTS = {
+            memory: "Flip two cards at a time and find every matching pair in as few moves as you can.",
+            snake: "Steer with the arrow keys or WASD, or swipe on a phone. Space pauses.",
+            ttt: "You are X. Beat the computer, or on Hard, try for a draw."
+        };
+
+        let current = null;
+        let currentId = null;
+
+        function openGame(id, updateHash) {
+            if (!GAMES[id]) id = "memory";
+            if (current) current.stop();
+            stage.textContent = "";
+            current = GAMES[id]();
+            currentId = id;
+            current.start(stage);
+
+            tabButtons.forEach(function (b) {
+                const on = b.dataset.game === id;
+                b.classList.toggle("active", on);
+                b.setAttribute("aria-pressed", on ? "true" : "false");
+            });
+            hintBox.textContent = HINTS[id];
+
+            if (updateHash) {
+                try { history.replaceState(null, "", "#" + id); } catch (e) {}
+            }
+        }
+
+        tabButtons.forEach(function (b) {
+            b.addEventListener("click", function () { openGame(b.dataset.game, true); });
+        });
+
+        window.addEventListener("hashchange", function () {
+            const id = location.hash.replace("#", "");
+            if (GAMES[id] && id !== currentId) openGame(id, false);
+        });
+
+        renderSound();
+        const startId = location.hash.replace("#", "");
+        openGame(GAMES[startId] ? startId : "memory", false);
+    })();
+    </script>
+</body>
+</html>

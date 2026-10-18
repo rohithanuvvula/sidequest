@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Mystery Picker | Sidequest</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/svg+xml" href="logo.svg">
+    <link rel="stylesheet" href="style.css">
+    <script>
+        (function () {
+            var theme = null;
+            try { theme = localStorage.getItem("theme"); } catch (e) {}
+            if (!theme) {
+                theme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+            }
+            document.documentElement.setAttribute("data-theme", theme);
+        })();
+    </script>
+</head>
+<body>
+    <nav>
+        <a href="index.html" class="logo" aria-label="Sidequest home">
+    <svg class="logo-mark" viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+            <linearGradient id="logo-grad" x1="8" y1="56" x2="56" y2="8" gradientUnits="userSpaceOnUse">
+                <stop offset="0" stop-color="#8b5cf6"/>
+                <stop offset="0.55" stop-color="#ec4899"/>
+                <stop offset="1" stop-color="#f97316"/>
+            </linearGradient>
+        </defs>
+        <path d="M51.7 28.53A20 20 0 1 1 35.47 12.3" fill="none" stroke="url(#logo-grad)" stroke-width="6" stroke-linecap="round"/>
+        <circle cx="51.09" cy="12.91" r="4.5" fill="#f97316"/>
+    </svg>
+    <span>sidequest</span>
+</a>
+        <button id="theme-toggle" aria-label="Switch between dark and light theme">☀️</button>
+    </nav>
+
+    <section class="hero">
+        <p class="tag">Mystery picker</p>
+        <h1>What should I <span class="gradient">do today?</span></h1>
+        <p class="subtitle">Choose what you’re in the mood for, then reveal your mystery.</p>
+    </section>
+
+    <section>
+        <div class="tabs" id="tabs">
+            <button type="button" class="tab active" data-cat="activity">Activity</button>
+            <button type="button" class="tab" data-cat="meal">Meal</button>
+            <button type="button" class="tab" data-cat="movie">Movie</button>
+            <button type="button" class="tab" data-cat="series">Series</button>
+        </div>
+
+        <p class="hint" id="hint"></p>
+
+        <div class="filters" id="filters"></div>
+
+        <p class="match-count" id="warning"></p>
+
+        <div class="result-card">
+            <p class="result-label" id="result-label">Today’s mission</p>
+            <h2 class="result-text" id="result-text">Your mystery awaits</h2>
+            <p class="result-note" id="result-note"></p>
+            <div class="result-tags" id="result-tags"></div>
+            <p class="result-disclaimer" id="result-disclaimer"></p>
+            <div class="result-actions">
+                <button type="button" class="btn" id="spin-btn">Reveal my mystery</button>
+                <button type="button" class="small-btn" id="copy-btn" hidden>Copy result</button>
+            </div>
+        </div>
+
+        <div class="picker-actions">
+            <button type="button" class="small-btn" id="clear-btn">Clear my picks</button>
+        </div>
+        <a href="index.html" class="back-link">← Back to all sidequests</a>
+    </section>
+
+    <script>
+        // Shows any script error on the page, so you can read it without the console.
+        window.addEventListener("error", function (e) {
+            var box = document.getElementById("warning");
+            if (box) {
+                box.textContent = "Script error: " + e.message + " (" +
+                    (e.filename || "").split("/").pop() + ", line " + e.lineno + ")";
+            }
+        });
+    </script>
+    <script src="theme.js"></script>
+    <script src="picker-data.js"></script>
+    <script>
+        // Turns the lists in picker-data.js into one flat list of items per category.
+        function buildItems() {
+            Object.keys(DATA).forEach((cat) => {
+                const data = DATA[cat];
+                const keys = data.filters.map((f) => f.key);
+
+                if (data.groups) {
+                    data.filters[0].options = Object.keys(data.groups);
+                    data.items = [];
+
+                    Object.keys(data.groups).forEach((groupName) => {
+                        data.groups[groupName].forEach((entry) => {
+                            const parts = Array.isArray(entry) ? entry : [entry];
+                            const item = { name: parts[0] };
+                            item[keys[0]] = groupName;
+                            for (let i = 1; i < parts.length; i++) {
+                                if (i < keys.length) {
+                                    item[keys[i]] = parts[i];
+                                } else if (i === keys.length) {
+                                    item.note = parts[i];
+                                }
+                            }
+                            data.items.push(item);
+                        });
+                    });
+                }
+
+                if (data.rows) {
+                    data.items = data.rows.map((row) => {
+                        const item = { name: row[0], note: row[1] };
+                        data.filters.forEach((filter, i) => {
+                            item[filter.key] = row[i + 2];
+                        });
+                        return item;
+                    });
+                }
+            });
+        }
+
+        buildItems();
+
+        let current = "activity";
+        let picks = {};
+        let spinning = false;
+        let hasResult = false;
+        let shareText = "";
+        let copyTimer = null;
+        const recent = {};
+
+        const tabs = document.querySelectorAll(".tab");
+        const hint = document.getElementById("hint");
+        const filtersBox = document.getElementById("filters");
+        const warning = document.getElementById("warning");
+        const resultLabel = document.getElementById("result-label");
+        const resultText = document.getElementById("result-text");
+        const resultNote = document.getElementById("result-note");
+        const resultTags = document.getElementById("result-tags");
+        const disclaimer = document.getElementById("result-disclaimer");
+        const spinBtn = document.getElementById("spin-btn");
+        const copyBtn = document.getElementById("copy-btn");
+        const clearBtn = document.getElementById("clear-btn");
+
+        function makeEl(tag, className, text) {
+            const node = document.createElement(tag);
+            if (className) node.className = className;
+            if (text !== undefined) node.textContent = text;
+            return node;
+        }
+
+        function randomIndex(max) {
+            return Math.floor(Math.random() * max);
+        }
+
+        function matches(item) {
+            return DATA[current].filters.every((filter) => {
+                const chosen = picks[filter.key];
+                return !chosen || chosen.size === 0 || chosen.has(item[filter.key]);
+            });
+        }
+
+        function updateWarning() {
+            const total = DATA[current].items.filter(matches).length;
+            warning.textContent = total === 0 ? "No matches for that combination. Try switching a filter off." : "";
+        }
+
+        // Picks one item. For movies and series it first flips a fair coin between
+        // India and Outside India, so the 50:50 ratio holds. It also avoids
+        // anything shown recently until that group runs out.
+        function pickFrom(pool) {
+            const history = recent[current] || (recent[current] = []);
+            const balanceKey = DATA[current].balance;
+            let candidates = pool;
+
+            if (balanceKey) {
+                const buckets = {};
+                pool.forEach((item) => {
+                    const k = item[balanceKey];
+                    (buckets[k] = buckets[k] || []).push(item);
+                });
+                const names = Object.keys(buckets);
+                candidates = buckets[names[randomIndex(names.length)]];
+            }
+
+            let fresh = candidates.filter((item) => !history.includes(item.name));
+
+            if (fresh.length === 0) {
+                const last = history[history.length - 1];
+                for (let i = history.length - 1; i >= 0; i--) {
+                    if (candidates.some((c) => c.name === history[i])) history.splice(i, 1);
+                }
+                fresh = candidates.filter((c) => c.name !== last);
+                if (fresh.length === 0) fresh = candidates;
+            }
+
+            const choice = fresh[randomIndex(fresh.length)];
+            history.push(choice.name);
+            if (history.length > 20) history.shift();
+            return choice;
+        }
+
+        function clearExtras() {
+            resultNote.textContent = "";
+            resultTags.textContent = "";
+            disclaimer.textContent = "";
+            copyBtn.hidden = true;
+        }
+
+        function setIdle() {
+            hasResult = false;
+            resultLabel.textContent = DATA[current].label;
+            resultText.textContent = DATA[current].idle;
+            clearExtras();
+            spinBtn.textContent = "Reveal my mystery";
+        }
+
+        function showResult(item) {
+            hasResult = true;
+            const data = DATA[current];
+            const prefix = data.notePrefix || "";
+            resultText.textContent = item.name;
+            resultNote.textContent = item.note ? prefix + item.note : "";
+            resultTags.textContent = "";
+
+            // Show a tag only for filters the person actually switched on.
+            data.filters.forEach((filter) => {
+                const chosen = picks[filter.key];
+                if (chosen && chosen.size > 0 && item[filter.key]) {
+                    resultTags.appendChild(makeEl("span", "pill", item[filter.key]));
+                }
+            });
+
+            const groupNote = data.groupNotes ? data.groupNotes[item[data.filters[0].key]] : "";
+            disclaimer.textContent = groupNote || "";
+
+            shareText = data.label + ": " + item.name +
+                "\nGet your own mystery pick: " + location.href.split("#")[0].split("?")[0];
+            copyBtn.textContent = "Copy result";
+            copyBtn.hidden = false;
+
+            resultText.classList.remove("pop");
+            void resultText.offsetWidth;
+            resultText.classList.add("pop");
+            spinBtn.textContent = "Spin again";
+        }
+
+        function spin() {
+            if (spinning) return;
+
+            const pool = DATA[current].items.filter(matches);
+
+            if (pool.length === 0) {
+                hasResult = false;
+                clearExtras();
+                resultText.textContent = "Nothing matches those picks";
+                resultNote.textContent = "Try switching one of your filters off.";
+                return;
+            }
+
+            const final = pickFrom(pool);
+            const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+            if (reduceMotion) {
+                showResult(final);
+                return;
+            }
+
+            spinning = true;
+            spinBtn.disabled = true;
+            clearExtras();
+            let count = 0;
+
+            const timer = setInterval(() => {
+                resultText.textContent = pool[randomIndex(pool.length)].name;
+                count++;
+                if (count >= 14) {
+                    clearInterval(timer);
+                    showResult(final);
+                    spinning = false;
+                    spinBtn.disabled = false;
+                }
+            }, 90);
+        }
+
+        function renderFilters() {
+            hint.textContent = DATA[current].hint || "";
+            filtersBox.textContent = "";
+
+            DATA[current].filters.forEach((filter, filterIndex) => {
+                const group = makeEl("div", "filter-group");
+                group.appendChild(makeEl("h3", "", filter.title));
+
+                const chips = makeEl("div", "chips");
+                filter.options.forEach((option) => {
+                    const chip = makeEl("button", "chip", option);
+                    chip.type = "button";
+                    const isOn = picks[filter.key] && picks[filter.key].has(option);
+                    chip.setAttribute("aria-pressed", isOn ? "true" : "false");
+
+                    chip.addEventListener("click", () => {
+                        if (spinning) return;
+
+                        const isPrimary = DATA[current].auto && filterIndex === 0;
+                        const wasOn = picks[filter.key] && picks[filter.key].has(option);
+
+                        // Cuisine or genre: tap to reveal, tap again to clear.
+                        if (isPrimary) {
+                            if (wasOn) {
+                                picks[filter.key] = new Set();
+                                renderFilters();
+                                setIdle();
+                            } else {
+                                picks[filter.key] = new Set([option]);
+                                renderFilters();
+                                spin();
+                            }
+                            return;
+                        }
+
+                        // Optional filters: tap to switch on, tap again to switch off.
+                        if (!picks[filter.key]) picks[filter.key] = new Set();
+                        const set = picks[filter.key];
+                        if (wasOn) {
+                            set.delete(option);
+                        } else {
+                            set.add(option);
+                        }
+                        chip.setAttribute("aria-pressed", wasOn ? "false" : "true");
+
+                        if (DATA[current].auto && hasResult) {
+                            spin();
+                        } else {
+                            updateWarning();
+                        }
+                    });
+
+                    chips.appendChild(chip);
+                });
+
+                group.appendChild(chips);
+                filtersBox.appendChild(group);
+            });
+
+            updateWarning();
+        }
+
+        copyBtn.addEventListener("click", async () => {
+            let ok = false;
+            try {
+                await navigator.clipboard.writeText(shareText);
+                ok = true;
+            } catch (e) {
+                const area = document.createElement("textarea");
+                area.value = shareText;
+                area.style.position = "fixed";
+                area.style.opacity = "0";
+                document.body.appendChild(area);
+                area.select();
+                try { ok = document.execCommand("copy"); } catch (err) {}
+                document.body.removeChild(area);
+            }
+            copyBtn.textContent = ok ? "Copied ✓" : "Couldn’t copy";
+            clearTimeout(copyTimer);
+            copyTimer = setTimeout(() => { copyBtn.textContent = "Copy result"; }, 2000);
+        });
+
+        tabs.forEach((tab) => {
+            tab.addEventListener("click", () => {
+                if (spinning) return;
+                current = tab.dataset.cat;
+                picks = {};
+                tabs.forEach((t) => t.classList.toggle("active", t === tab));
+                renderFilters();
+                setIdle();
+            });
+        });
+
+        clearBtn.addEventListener("click", () => {
+            if (spinning) return;
+            picks = {};
+            renderFilters();
+            setIdle();
+        });
+
+        spinBtn.addEventListener("click", spin);
+
+        renderFilters();
+        setIdle();
+    </script>
+</body>
+</html>

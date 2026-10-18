@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Favorites | Sidequest</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Movies, food, music, books, and places I love.">
+    <link rel="icon" type="image/svg+xml" href="logo.svg">
+    <link rel="stylesheet" href="style.css">
+    <script>
+        (function () {
+            var theme = null;
+            try { theme = localStorage.getItem("theme"); } catch (e) {}
+            if (!theme) {
+                theme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+            }
+            document.documentElement.setAttribute("data-theme", theme);
+        })();
+    </script>
+</head>
+<body>
+    <nav>
+        <a href="index.html" class="logo" aria-label="Sidequest home">
+            <svg class="logo-mark" viewBox="0 0 64 64" aria-hidden="true">
+                <defs>
+                    <linearGradient id="logo-grad" x1="8" y1="56" x2="56" y2="8" gradientUnits="userSpaceOnUse">
+                        <stop offset="0" stop-color="#8b5cf6"/>
+                        <stop offset="0.55" stop-color="#ec4899"/>
+                        <stop offset="1" stop-color="#f97316"/>
+                    </linearGradient>
+                </defs>
+                <path d="M51.7 28.53A20 20 0 1 1 35.47 12.3" fill="none" stroke="url(#logo-grad)" stroke-width="6" stroke-linecap="round"/>
+                <circle cx="51.09" cy="12.91" r="4.5" fill="#f97316"/>
+            </svg>
+            <span>sidequest</span>
+        </a>
+        <button id="theme-toggle" aria-label="Switch between dark and light theme">☀️</button>
+    </nav>
+
+    <section class="hero">
+        <p class="tag">Favorites</p>
+        <h1>Things I <span class="gradient">love</span></h1>
+        <p class="subtitle">Scroll each row, tap a card to see why, and add your own at the end.</p>
+    </section>
+
+    <div id="rows"></div>
+
+    <section class="taste">
+        <h2>Your taste</h2>
+        <p>Tap any card and choose “Add to my taste”, or use the + Add card to add your own. Then turn your picks into a card or challenge a friend to a taste match.</p>
+        <label class="taste-name">Your name (optional)
+            <input type="text" id="taste-name" maxlength="30" placeholder="Shown on your card and match link">
+        </label>
+        <div class="taste-actions">
+            <button type="button" class="btn" id="card-btn">Make my Taste Card</button>
+            <button type="button" class="small-btn" id="link-btn">Copy match link</button>
+            <button type="button" class="small-btn" id="match-btn" hidden>See match</button>
+        </div>
+        <p class="note" id="taste-msg" role="status"></p>
+        <p class="note">Your picks are saved in this browser only, and your card is made on your device. A match link contains the picks you chose to share, so send it only to people you trust.</p>
+    </section>
+
+    <section>
+        <a href="index.html" class="back-link">← Back to all sidequests</a>
+    </section>
+
+    <dialog class="detail" id="detail" aria-labelledby="detail-title">
+        <div class="detail-art" id="detail-art">⭐</div>
+        <div class="detail-body">
+            <h3 id="detail-title"></h3>
+            <p class="detail-meta" id="detail-meta"></p>
+            <p class="detail-note" id="detail-note"></p>
+            <div class="detail-actions">
+                <button type="button" class="small-btn" id="like-btn" hidden>♡ Add to my taste</button>
+                <button type="button" class="small-btn danger" id="remove-btn" hidden>Remove</button>
+                <form method="dialog">
+                    <button class="small-btn">Close</button>
+                </form>
+            </div>
+        </div>
+    </dialog>
+
+    <dialog class="detail" id="add-dialog" aria-labelledby="add-title">
+        <form id="add-form" class="add-form">
+            <h3 id="add-title">Add a favorite</h3>
+            <label>Name
+                <input type="text" id="add-name" maxlength="40" placeholder="What is it?" required>
+            </label>
+            <label>Short label (optional)
+                <input type="text" id="add-meta" maxlength="30" placeholder="Genre, cuisine, artist, city...">
+            </label>
+            <label>Why you love it (optional)
+                <textarea id="add-note" maxlength="120" rows="3" placeholder="One line is plenty"></textarea>
+            </label>
+            <label>Emoji (optional)
+                <input type="text" id="add-emoji" maxlength="8" placeholder="⭐">
+            </label>
+            <p class="form-error" id="add-error" role="alert"></p>
+            <div class="detail-actions">
+                <button type="submit" class="btn">Add</button>
+                <button type="button" class="small-btn" id="add-cancel">Cancel</button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog class="detail wide" id="card-dialog" aria-labelledby="card-dialog-title">
+        <div class="dialog-pad">
+            <h3 id="card-dialog-title">Your Taste Card</h3>
+            <div class="chips card-styles" id="card-styles">
+                <button type="button" class="chip" data-style="paper" aria-pressed="true">Paper</button>
+                <button type="button" class="chip" data-style="mono" aria-pressed="false">Mono</button>
+                <button type="button" class="chip" data-style="ocean" aria-pressed="false">Ocean</button>
+            </div>
+            <canvas id="card-canvas" class="card-canvas" aria-label="Preview of your Taste Card"></canvas>
+            <div class="detail-actions">
+                <button type="button" class="btn" id="download-btn">Download image</button>
+                <button type="button" class="small-btn" id="share-btn" hidden>Share</button>
+                <button type="button" class="small-btn" id="card-close">Close</button>
+            </div>
+        </div>
+    </dialog>
+
+    <dialog class="detail wide" id="match-dialog" aria-labelledby="match-title">
+        <div class="dialog-pad">
+            <h3 id="match-title">Taste match</h3>
+            <div id="match-content"></div>
+            <div class="detail-actions">
+                <button type="button" class="small-btn" id="match-close">Close</button>
+            </div>
+        </div>
+    </dialog>
+
+    <script src="theme.js"></script>
+    <script src="favorites-data.js"></script>
+    <script>
+        const STORAGE_KEY = "sidequest-my-favorites";
+        const LIKED_KEY = "sidequest-liked-picks";
+        const NAME_KEY = "sidequest-taste-name";
+        const MAX_OWN = 20;
+        const MAX_SHARE = 10;
+        const CARD_PER_ROW = 3;
+        const ROW_EMOJI = { "Movies": "🎬", "Food": "🍽️", "Music": "🎵", "Places": "📍", "Books": "📚" };
+        const HUES = [265, 285, 305, 325, 345, 10, 25];
+        const FONT = '"Segoe UI", system-ui, -apple-system, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+        const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+        // Three Taste Card looks, each different from the website's own style.
+        const CARD_THEMES = {
+            paper: {
+                bg: ["#f5ede0", "#efe4d2"], ink: "#2b2118", muted: "#7a6a58", accent: "#d6452b",
+                font: 'Georgia, "Times New Roman", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", serif'
+            },
+            mono: {
+                bg: ["#111111", "#111111"], ink: "#ffffff", muted: "#a3a3a3", accent: "#d4ff3a",
+                font: '"Courier New", Consolas, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", monospace'
+            },
+            ocean: {
+                bg: ["#0e7490", "#1e3a8a"], ink: "#ffffff", muted: "#bae6fd", accent: "#a5f3fc",
+                font: FONT
+            }
+        };
+
+        const rowsBox = document.getElementById("rows");
+        const dialog = document.getElementById("detail");
+        const dArt = document.getElementById("detail-art");
+        const dTitle = document.getElementById("detail-title");
+        const dMeta = document.getElementById("detail-meta");
+        const dNote = document.getElementById("detail-note");
+        const likeBtn = document.getElementById("like-btn");
+        const removeBtn = document.getElementById("remove-btn");
+
+        const addDialog = document.getElementById("add-dialog");
+        const addForm = document.getElementById("add-form");
+        const addTitle = document.getElementById("add-title");
+        const nameInput = document.getElementById("add-name");
+        const metaInput = document.getElementById("add-meta");
+        const noteInput = document.getElementById("add-note");
+        const emojiInput = document.getElementById("add-emoji");
+        const addError = document.getElementById("add-error");
+        const addCancel = document.getElementById("add-cancel");
+
+        const tasteName = document.getElementById("taste-name");
+        const tasteMsg = document.getElementById("taste-msg");
+        const cardBtn = document.getElementById("card-btn");
+        const linkBtn = document.getElementById("link-btn");
+        const matchBtn = document.getElementById("match-btn");
+        const cardDialog = document.getElementById("card-dialog");
+        const cardCanvas = document.getElementById("card-canvas");
+        const styleChips = document.querySelectorAll("#card-styles .chip");
+        const downloadBtn = document.getElementById("download-btn");
+        const shareBtn = document.getElementById("share-btn");
+        const cardClose = document.getElementById("card-close");
+        const matchDialog = document.getElementById("match-dialog");
+        const matchTitle = document.getElementById("match-title");
+        const matchContent = document.getElementById("match-content");
+        const matchClose = document.getElementById("match-close");
+
+        let mine = loadStore(STORAGE_KEY);
+        let liked = loadStore(LIKED_KEY);
+        const sections = [];
+        let currentItem = null;
+        let currentIndex = 0;
+        let addingRow = null;
+        let addingIndex = 0;
+        let friend = null;
+        let msgTimer = null;
+        let cardStyle = "paper";
+        let cardGroups = [];
+        let cardName = "";
+
+        function loadStore(key) {
+            try {
+                const saved = JSON.parse(localStorage.getItem(key));
+                if (saved && typeof saved === "object") return saved;
+            } catch (e) {}
+            return {};
+        }
+
+        function saveStore(key, value) {
+            try {
+                localStorage.setItem(key, JSON.stringify(value));
+            } catch (e) {}
+        }
+
+        function makeEl(tag, className, text) {
+            const node = document.createElement(tag);
+            if (className) node.className = className;
+            if (text !== undefined) node.textContent = text;
+            return node;
+        }
+
+        // Keeps only the first emoji (or symbol) the person typed.
+        function firstSymbol(text, fallback) {
+            const trimmed = String(text).trim();
+            if (!trimmed) return fallback;
+            if (window.Intl && Intl.Segmenter) {
+                const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+                for (const part of segmenter.segment(trimmed)) return part.segment;
+            }
+            return Array.from(trimmed)[0];
+        }
+
+        // Makes titles comparable: "3 Idiots", "3 idiots!" and "3-idiots" all match.
+        function norm(text) {
+            return String(text).toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+        }
+
+        async function copyText(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+                return true;
+            } catch (e) {
+                const area = document.createElement("textarea");
+                area.value = text;
+                area.style.position = "fixed";
+                area.style.opacity = "0";
+                document.body.appendChild(area);
+                area.select();
+                let ok = false;
+                try { ok = document.execCommand("copy"); } catch (err) {}
+                document.body.removeChild(area);
+                return ok;
+            }
+        }
+
+        function isLiked(rowTitle, title) {
+            return Array.isArray(liked[rowTitle]) && liked[rowTitle].includes(title);
+        }
+
+        function ownItems(row) {
+            const list = Array.isArray(mine[row.title]) ? mine[row.title] : [];
+            return list.filter((it) => it && typeof it.title === "string");
+        }
+
+        // Starter cards first (marked if liked), then whatever the visitor added.
+        function allItems(row) {
+            const starters = row.items.map((it) =>
+                Object.assign({}, it, { liked: isLiked(row.title, it.title) }));
+            const own = ownItems(row).map((it) => Object.assign({}, it, { mine: true }));
+            return starters.concat(own);
+        }
+
+        // Everything the visitor counts as "their taste" in a row.
+        function pickedFor(row) {
+            const likedTitles = Array.isArray(liked[row.title]) ? liked[row.title] : [];
+            const starters = likedTitles
+                .map((t) => row.items.find((it) => it.title === t))
+                .filter(Boolean);
+            return ownItems(row).concat(starters);
+        }
+
+        function updateLikeBtn() {
+            if (!currentItem || currentItem.mine) {
+                likeBtn.hidden = true;
+                return;
+            }
+            const on = isLiked(FAVORITES[currentIndex].title, currentItem.title);
+            likeBtn.hidden = false;
+            likeBtn.textContent = on ? "♥ In my taste" : "♡ Add to my taste";
+            likeBtn.setAttribute("aria-pressed", on ? "true" : "false");
+        }
+
+        function openDetail(item, hue, rowIndex) {
+            currentItem = item;
+            currentIndex = rowIndex;
+            dArt.textContent = item.emoji || "⭐";
+            dArt.style.setProperty("--h", hue);
+            dTitle.textContent = item.title;
+            dMeta.textContent = item.meta || "";
+            dNote.textContent = item.note || "";
+            dNote.hidden = !item.note;
+            removeBtn.hidden = !item.mine;
+            updateLikeBtn();
+            dialog.showModal();
+        }
+
+        function openAdd(row, index) {
+            addingRow = row;
+            addingIndex = index;
+            addForm.reset();
+            addError.textContent = "";
+            addTitle.textContent = "Add to " + row.title;
+            emojiInput.placeholder = ROW_EMOJI[row.title] || "⭐";
+            addDialog.showModal();
+            nameInput.focus();
+        }
+
+        function buildRow(row, rowIndex) {
+            const section = makeEl("section", "fav-row");
+
+            const head = makeEl("div", "row-head");
+            head.appendChild(makeEl("h2", "", row.title));
+
+            const arrows = makeEl("div", "row-arrows");
+            const left = makeEl("button", "arrow", "‹");
+            const right = makeEl("button", "arrow", "›");
+            left.type = "button";
+            right.type = "button";
+            left.setAttribute("aria-label", "Scroll " + row.title + " left");
+            right.setAttribute("aria-label", "Scroll " + row.title + " right");
+            arrows.appendChild(left);
+            arrows.appendChild(right);
+            head.appendChild(arrows);
+
+            const track = makeEl("div", "row-track");
+
+            allItems(row).forEach((item, i) => {
+                const hue = HUES[(i + rowIndex * 2) % HUES.length];
+
+                const card = makeEl("button", "fav-card");
+                card.type = "button";
+
+                const art = makeEl("span", "fav-art", item.emoji || "⭐");
+                art.style.setProperty("--h", hue);
+                if (item.mine) {
+                    art.appendChild(makeEl("span", "fav-badge", "Yours"));
+                } else if (item.liked) {
+                    art.appendChild(makeEl("span", "fav-badge", "♥ Liked"));
+                }
+
+                const body = makeEl("span", "fav-body");
+                body.appendChild(makeEl("span", "fav-title", item.title));
+                body.appendChild(makeEl("span", "fav-meta", item.meta || ""));
+
+                card.appendChild(art);
+                card.appendChild(body);
+                card.addEventListener("click", () => openDetail(item, hue, rowIndex));
+                track.appendChild(card);
+            });
+
+            const add = makeEl("button", "fav-card fav-add");
+            add.type = "button";
+            add.setAttribute("aria-label", "Add your own to " + row.title);
+            add.appendChild(makeEl("span", "add-plus", "+"));
+            add.appendChild(makeEl("span", "add-label", "Add"));
+            add.addEventListener("click", () => openAdd(row, rowIndex));
+            track.appendChild(add);
+
+            function scrollRow(direction) {
+                track.scrollBy({
+                    left: direction * track.clientWidth * 0.8,
+                    behavior: reduceMotion ? "auto" : "smooth"
+                });
+            }
+
+            left.addEventListener("click", () => scrollRow(-1));
+            right.addEventListener("click", () => scrollRow(1));
+
+            section.appendChild(head);
+            section.appendChild(track);
+            return section;
+        }
+
+        // Rebuilds one row only, and keeps its scroll position.
+        function rebuildRow(index, scrollToEnd) {
+            const oldTrack = sections[index].querySelector(".row-track");
+            const keep = oldTrack ? oldTrack.scrollLeft : 0;
+            const fresh = buildRow(FAVORITES[index], index);
+            rowsBox.replaceChild(fresh, sections[index]);
+            sections[index] = fresh;
+            const track = fresh.querySelector(".row-track");
+            track.scrollLeft = scrollToEnd ? track.scrollWidth : keep;
+        }
+
+        FAVORITES.forEach((row, index) => {
+            const section = buildRow(row, index);
+            sections.push(section);
+            rowsBox.appendChild(section);
+        });
+
+        addForm.addEventListener("submit", (e) => {
+            e.preventDefault();
+            const row = addingRow;
+            const title = nameInput.value.trim();
+            if (!row || !title) return;
+
+            const list = Array.isArray(mine[row.title]) ? mine[row.title] : [];
+
+            if (allItems(row).some((it) => it.title.toLowerCase() === title.toLowerCase())) {
+                addError.textContent = "That one is already in this row. Tap its card and choose “Add to my taste”.";
+                return;
+            }
+            if (list.length >= MAX_OWN) {
+                addError.textContent = "You can add up to " + MAX_OWN + " in each row.";
+                return;
+            }
+
+            list.push({
+                id: String(Date.now()),
+                title: title,
+                meta: metaInput.value.trim(),
+                note: noteInput.value.trim(),
+                emoji: firstSymbol(emojiInput.value, ROW_EMOJI[row.title] || "⭐")
+            });
+
+            mine[row.title] = list;
+            saveStore(STORAGE_KEY, mine);
+            addDialog.close();
+            rebuildRow(addingIndex, true);
+        });
+
+        addCancel.addEventListener("click", () => addDialog.close());
+
+        likeBtn.addEventListener("click", () => {
+            if (!currentItem || currentItem.mine) return;
+            const rowTitle = FAVORITES[currentIndex].title;
+            const list = Array.isArray(liked[rowTitle]) ? liked[rowTitle] : [];
+
+            if (list.includes(currentItem.title)) {
+                liked[rowTitle] = list.filter((t) => t !== currentItem.title);
+            } else {
+                liked[rowTitle] = list.concat(currentItem.title);
+            }
+
+            saveStore(LIKED_KEY, liked);
+            updateLikeBtn();
+            rebuildRow(currentIndex, false);
+        });
+
+        removeBtn.addEventListener("click", () => {
+            if (!currentItem || !currentItem.mine) return;
+            if (!confirm("Remove “" + currentItem.title + "” from your favorites?")) return;
+
+            const row = FAVORITES[currentIndex];
+            mine[row.title] = ownItems(row).filter((it) => it.id !== currentItem.id);
+            saveStore(STORAGE_KEY, mine);
+            dialog.close();
+            rebuildRow(currentIndex, false);
+        });
+
+        // Clicking the dark area outside any window closes it.
+        [dialog, addDialog, cardDialog, matchDialog].forEach((d) => {
+            d.addEventListener("click", (e) => {
+                if (e.target === d) d.close();
+            });
+        });
+
+        // ------------------------------------------------------------
+        // Your taste: name, Taste Card, and Taste Match
+        // ------------------------------------------------------------
+        try {
+            tasteName.value = localStorage.getItem(NAME_KEY) || "";
+        } catch (e) {}
+
+        tasteName.addEventListener("input", () => {
+            try { localStorage.setItem(NAME_KEY, tasteName.value.trim()); } catch (e) {}
+        });
+
+        function getName() {
+            return tasteName.value.trim().slice(0, 30);
+        }
+
+        function showTasteMsg(text) {
+            tasteMsg.textContent = text;
+            clearTimeout(msgTimer);
+            msgTimer = setTimeout(() => { tasteMsg.textContent = ""; }, 7000);
+        }
+
+        const NEED_PICKS = "Pick a few favorites first: tap any card and choose “Add to my taste”, or use the + Add card to add your own.";
+
+        // The visitor's picks (liked and added), grouped by row, in row order.
+        function myPicks(limit) {
+            const out = [];
+            FAVORITES.forEach((row) => {
+                const items = pickedFor(row).slice(0, limit);
+                if (items.length) out.push({ row: row.title, items: items });
+            });
+            return out;
+        }
+
+        // ---- Taste Card (drawn on a canvas, never uploaded) ----
+        function fitText(ctx, text, maxWidth) {
+            if (ctx.measureText(text).width <= maxWidth) return text;
+            const chars = Array.from(text);
+            while (chars.length > 1 && ctx.measureText(chars.join("") + "…").width > maxWidth) {
+                chars.pop();
+            }
+            return chars.join("").trimEnd() + "…";
+        }
+
+        function spacing(ctx, px) {
+            if ("letterSpacing" in ctx) ctx.letterSpacing = px + "px";
+        }
+
+        function panel(ctx, x, y, w, h, r) {
+            ctx.beginPath();
+            if (ctx.roundRect) {
+                ctx.roundRect(x, y, w, h, r);
+            } else {
+                ctx.rect(x, y, w, h);
+            }
+            ctx.fill();
+        }
+
+        // The Sidequest mark: an open ring with a dot stepping out of it.
+        function drawLogo(ctx, x, y, size, strokeColor, dotColor) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.scale(size / 64, size / 64);
+            ctx.lineWidth = 6;
+            ctx.lineCap = "round";
+            ctx.strokeStyle = strokeColor;
+            ctx.stroke(new Path2D("M51.7 28.53A20 20 0 1 1 35.47 12.3"));
+            ctx.fillStyle = dotColor;
+            ctx.beginPath();
+            ctx.arc(51.09, 12.91, 4.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        function drawCard(name, groups, key) {
+            const t = CARD_THEMES[key] || CARD_THEMES.paper;
+            const W = 1080;
+            const PAD = 90;
+            const rowsHeight = groups.reduce((sum, g) => sum + 90 + g.items.length * 66 + 40, 0);
+            const H = 440 + rowsHeight + 170;
+
+            cardCanvas.width = W;
+            cardCanvas.height = H;
+            const ctx = cardCanvas.getContext("2d");
+            ctx.textAlign = "left";
+            ctx.textBaseline = "alphabetic";
+
+            const bg = ctx.createLinearGradient(0, 0, 0, H);
+            bg.addColorStop(0, t.bg[0]);
+            bg.addColorStop(1, t.bg[1]);
+            ctx.fillStyle = bg;
+            ctx.fillRect(0, 0, W, H);
+
+            // Decoration that gives each look its own character.
+            if (key === "paper") {
+                ctx.strokeStyle = t.ink;
+                ctx.lineWidth = 4;
+                ctx.strokeRect(34, 34, W - 68, H - 68);
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(50, 50, W - 100, H - 100);
+            } else if (key === "mono") {
+                ctx.fillStyle = t.accent;
+                ctx.fillRect(0, 0, W, 28);
+                ctx.fillRect(0, H - 28, W, 28);
+            } else if (key === "ocean") {
+                ctx.fillStyle = "rgba(255, 255, 255, 0.07)";
+                ctx.beginPath();
+                ctx.arc(W - 40, 80, 260, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(60, H - 40, 200, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            drawLogo(ctx, PAD, 80, 72, t.accent, t.ink);
+            ctx.fillStyle = t.ink;
+            ctx.font = "700 40px " + t.font;
+            ctx.fillText("sidequest", PAD + 92, 130);
+
+            ctx.fillStyle = t.muted;
+            ctx.font = "600 26px " + t.font;
+            spacing(ctx, 5);
+            ctx.fillText("TASTE CARD", PAD, 230);
+            spacing(ctx, 0);
+
+            const title = name ? name + "’s taste" : "My taste";
+            ctx.fillStyle = t.ink;
+            ctx.font = "700 84px " + t.font;
+            ctx.fillText(fitText(ctx, key === "mono" ? title.toUpperCase() : title, W - PAD * 2), PAD, 335);
+
+            ctx.fillStyle = t.accent;
+            ctx.fillRect(PAD, 365, 140, 8);
+
+            let y = 440;
+            groups.forEach((g) => {
+                const blockH = 90 + g.items.length * 66;
+
+                if (key === "ocean") {
+                    ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
+                    panel(ctx, PAD - 34, y - 14, W - PAD * 2 + 68, blockH + 8, 30);
+                }
+
+                const heading = g.row.toUpperCase();
+                ctx.font = "700 28px " + t.font;
+                spacing(ctx, 5);
+                const hw = ctx.measureText(heading).width;
+
+                if (key === "mono") {
+                    ctx.fillStyle = t.accent;
+                    ctx.fillRect(PAD, y, hw + 40, 50);
+                    ctx.fillStyle = "#111111";
+                    ctx.fillText(heading, PAD + 20, y + 36);
+                } else {
+                    ctx.fillStyle = t.accent;
+                    ctx.fillText(heading, PAD, y + 36);
+                    if (key === "paper") {
+                        ctx.strokeStyle = t.muted;
+                        ctx.lineWidth = 3;
+                        ctx.lineCap = "round";
+                        ctx.setLineDash([2, 10]);
+                        ctx.beginPath();
+                        ctx.moveTo(PAD + hw + 24, y + 26);
+                        ctx.lineTo(W - PAD, y + 26);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                    }
+                }
+                spacing(ctx, 0);
+
+                let iy = y + 90;
+                g.items.forEach((it) => {
+                    ctx.fillStyle = t.ink;
+                    ctx.font = "400 40px " + t.font;
+                    ctx.fillText(it.emoji || "⭐", PAD, iy + 34);
+                    ctx.font = "500 40px " + t.font;
+                    ctx.fillText(fitText(ctx, it.title, W - PAD * 2 - 80), PAD + 80, iy + 34);
+                    iy += 66;
+                });
+
+                y += blockH + 40;
+            });
+
+            ctx.fillStyle = t.muted;
+            ctx.font = "400 28px " + t.font;
+            const where = location.hostname
+                ? location.hostname + location.pathname.replace(/favorites\.html$/, "")
+                : "sidequest";
+            ctx.fillText("Make yours at " + where, PAD, H - 80);
+        }
+
+        cardBtn.addEventListener("click", () => {
+            const groups = myPicks(CARD_PER_ROW);
+            if (groups.length === 0) {
+                showTasteMsg(NEED_PICKS);
+                return;
+            }
+            cardGroups = groups;
+            cardName = getName();
+            drawCard(cardName, cardGroups, cardStyle);
+            cardDialog.showModal();
+        });
+
+        styleChips.forEach((chip) => {
+            chip.addEventListener("click", () => {
+                cardStyle = chip.dataset.style;
+                styleChips.forEach((c) => c.setAttribute("aria-pressed", c === chip ? "true" : "false"));
+                drawCard(cardName, cardGroups, cardStyle);
+            });
+        });
+
+        downloadBtn.addEventListener("click", () => {
+            const link = document.createElement("a");
+            link.download = "my-taste-card.png";
+            link.href = cardCanvas.toDataURL("image/png");
+            link.click();
+        });
+
+        if (navigator.share && typeof navigator.canShare === "function") {
+            shareBtn.hidden = false;
+        }
+
+        shareBtn.addEventListener("click", () => {
+            cardCanvas.toBlob((blob) => {
+                if (!blob) return;
+                const file = new File([blob], "my-taste-card.png", { type: "image/png" });
+                if (navigator.canShare({ files: [file] })) {
+                    navigator.share({ files: [file], title: "My Taste Card" }).catch(() => {});
+                }
+            });
+        });
+
+        cardClose.addEventListener("click", () => cardDialog.close());
+
+        // ---- Taste Match (data travels inside the link, after the #) ----
+        function encodePayload(obj) {
+            const bytes = new TextEncoder().encode(JSON.stringify(obj));
+            let bin = "";
+            bytes.forEach((b) => { bin += String.fromCharCode(b); });
+            return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+        }
+
+        function decodePayload(text) {
+            const bin = atob(text.replace(/-/g, "+").replace(/_/g, "/"));
+            const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+            return JSON.parse(new TextDecoder().decode(bytes));
+        }
+
+        // Anything arriving from a link is untrusted, so it is checked and trimmed.
+        function cleanPayload(raw) {
+            if (!raw || typeof raw !== "object" || !raw.r || typeof raw.r !== "object") return null;
+            const out = { n: typeof raw.n === "string" ? raw.n.slice(0, 30).trim() : "", r: {} };
+            let count = 0;
+
+            FAVORITES.forEach((row) => {
+                const list = raw.r[row.title];
+                if (!Array.isArray(list)) return;
+                const seen = new Set();
+                out.r[row.title] = [];
+
+                list.slice(0, MAX_SHARE).forEach((entry) => {
+                    if (!Array.isArray(entry) || typeof entry[0] !== "string") return;
+                    const title = entry[0].slice(0, 40).trim();
+                    const key = norm(title);
+                    if (!title || !key || seen.has(key)) return;
+                    seen.add(key);
+                    out.r[row.title].push({
+                        title: title,
+                        emoji: firstSymbol(typeof entry[1] === "string" ? entry[1].slice(0, 8) : "", "⭐")
+                    });
+                    count++;
+                });
+            });
+
+            return count > 0 ? out : null;
+        }
+
+        function makeMatchLink() {
+            const groups = myPicks(MAX_SHARE);
+            if (groups.length === 0) return null;
+            const payload = { n: getName(), r: {} };
+            groups.forEach((g) => {
+                payload.r[g.row] = g.items.map((it) => [it.title, it.emoji || "⭐"]);
+            });
+            return location.href.split("#")[0].split("?")[0] + "#match=" + encodePayload(payload);
+        }
+
+        linkBtn.addEventListener("click", async () => {
+            const link = makeMatchLink();
+            if (!link) {
+                showTasteMsg(NEED_PICKS);
+                return;
+            }
+            const ok = await copyText(link);
+            showTasteMsg(ok
+                ? "Match link copied. Send it to a friend, and they can see how your tastes compare."
+                : "Couldn’t copy the link on this device.");
+        });
+
+        function addPills(parent, items) {
+            const list = makeEl("div", "pill-list");
+            items.forEach((it) => {
+                list.appendChild(makeEl("span", "pill", (it.emoji || "⭐") + " " + it.title));
+            });
+            parent.appendChild(list);
+        }
+
+        function renderMatch() {
+            matchContent.textContent = "";
+            const who = friend.n || "Your friend";
+            matchTitle.textContent = "Taste match with " + who;
+
+            let totalTheirs = 0;
+            let totalYours = 0;
+            let sharedTotal = 0;
+            const stats = [];
+
+            FAVORITES.forEach((row) => {
+                const theirs = friend.r[row.title] || [];
+                const yours = pickedFor(row);
+                const yourKeys = new Set(yours.map((it) => norm(it.title)));
+                const theirKeys = new Set(theirs.map((it) => norm(it.title)));
+                const shared = theirs.filter((it) => yourKeys.has(norm(it.title)));
+
+                totalTheirs += theirs.length;
+                totalYours += yours.length;
+                sharedTotal += shared.length;
+
+                if (theirs.length || yours.length) {
+                    stats.push({
+                        title: row.title,
+                        theirs: theirs,
+                        shared: shared,
+                        theirOnly: theirs.length - shared.length,
+                        yourOnly: yours.filter((it) => !theirKeys.has(norm(it.title))).length
+                    });
+                }
+            });
+
+            // The visitor has not picked any favorites yet.
+            if (totalYours === 0) {
+                matchContent.appendChild(makeEl("p", "", who + " shared their taste with you. Pick your own favorites on this page (tap a card and choose “Add to my taste”, or use + Add), then tap the “See match” button to compare."));
+                stats.forEach((s) => {
+                    if (!s.theirs.length) return;
+                    matchContent.appendChild(makeEl("h4", "match-heading", s.title));
+                    addPills(matchContent, s.theirs);
+                });
+                return;
+            }
+
+            const base = Math.min(totalTheirs, totalYours);
+            const percent = base ? Math.min(100, Math.round((sharedTotal / base) * 100)) : 0;
+            const label = percent === 0 ? "Opposites attract"
+                : percent < 30 ? "Different flavors"
+                : percent < 60 ? "Good overlap"
+                : percent < 90 ? "Taste buddies"
+                : "Taste twins";
+
+            const score = makeEl("div", "match-score");
+            score.appendChild(makeEl("span", "match-percent", percent + "%"));
+            score.appendChild(makeEl("span", "match-label", label));
+            matchContent.appendChild(score);
+
+            const bar = makeEl("div", "match-bar");
+            const fill = makeEl("div", "match-fill");
+            fill.style.width = percent + "%";
+            bar.appendChild(fill);
+            matchContent.appendChild(bar);
+
+            if (sharedTotal > 0) {
+                matchContent.appendChild(makeEl("h4", "match-heading", "You both love"));
+                stats.forEach((s) => {
+                    if (!s.shared.length) return;
+                    matchContent.appendChild(makeEl("p", "row-stat", s.title));
+                    addPills(matchContent, s.shared);
+                });
+            } else {
+                matchContent.appendChild(makeEl("p", "", "No shared favorites yet. That just means you have lots to recommend to each other."));
+            }
+
+            matchContent.appendChild(makeEl("h4", "match-heading", "Row by row"));
+            stats.forEach((s) => {
+                matchContent.appendChild(makeEl("p", "row-stat",
+                    s.title + ": " + s.shared.length + " shared · " + s.theirOnly + " only them · " + s.yourOnly + " only you"));
+            });
+
+            matchContent.appendChild(makeEl("p", "note", "Just for fun. This only compares the favorites each of you picked here."));
+        }
+
+        function openMatch() {
+            if (!friend) return;
+            renderMatch();
+            matchDialog.showModal();
+        }
+
+        function readMatchFromHash() {
+            const found = location.hash.match(/^#match=([A-Za-z0-9_-]+)$/);
+            if (!found) return;
+
+            try {
+                friend = cleanPayload(decodePayload(found[1]));
+            } catch (e) {
+                friend = null;
+            }
+
+            if (friend) {
+                matchBtn.hidden = false;
+                matchBtn.textContent = "See match with " + (friend.n || "your friend");
+                openMatch();
+            } else {
+                showTasteMsg("That match link looks broken or empty.");
+            }
+        }
+
+        matchBtn.addEventListener("click", openMatch);
+        matchClose.addEventListener("click", () => matchDialog.close());
+        window.addEventListener("hashchange", readMatchFromHash);
+        readMatchFromHash();
+    </script>
+</body>
+</html>
